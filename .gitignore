@@ -1,0 +1,5 @@
+.venv
+*.lock
+trainer_output
+**/__pycache__
+f0_stats/*hz.*
