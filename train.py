@@ -35,7 +35,7 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader
 from transformers import Trainer, TrainingArguments, set_seed
 
-from data import collate, preprocess
+from data.data import collate, preprocess
 from model.prosody_predictor import ProsodyPredictor
 
 # ---- import your code ----
