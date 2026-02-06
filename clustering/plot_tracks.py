@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 
-from clustering.clusters import load_bns_and_clusters
+from clustering.clusters import load_bns_and_clusters, spectral_order
 
 import torch
 import torchaudio
@@ -45,7 +45,9 @@ def mel_spectrogram_50hz(
     return S_db, hop
 
 
-def plot_indices_with_phone_annotations(indices, phones, S_bg=None):
+def plot_indices_with_phone_annotations(
+    indices, phones, dist_norm, S_bg=None, cmap_name="plasma"
+):
     indices = np.asarray(indices)
 
     # ----- RLE indices -----
@@ -83,9 +85,12 @@ def plot_indices_with_phone_annotations(indices, phones, S_bg=None):
     ax.set_zorder(1)
     ax.patch.set_alpha(0.0)
 
+    cmap = plt.get_cmap(cmap_name)
+
     # ----- MIDI-like blocks -----
     for v, s, L in zip(values, starts, lengths):
-        ax.broken_barh([(s, L)], (v - 0.4, 0.8), zorder=2)
+        color = cmap(dist_norm[v])
+        ax.broken_barh([(s, L)], (v - 0.4, 0.8), zorder=2, facecolors=color)
 
     # ----- Phones: spans + annotations -----
     for p in phones:
@@ -123,9 +128,12 @@ if __name__ == "__main__":
     TOKEN_TYPE = "phones"
     # Example call:
     bns, Ts, file_ids, labels, centroids = load_bns_and_clusters()  # [T] at 50Hz
+    perm, inv_perm, adj_dist_norm = spectral_order(centroids)
 
     Ts = [0] + Ts
     Ts = torch.cumsum(torch.tensor(Ts), dim=0)
+
+    labels = inv_perm[labels]
 
     plt.show()
 
@@ -143,5 +151,5 @@ if __name__ == "__main__":
         S_db, hop = mel_spectrogram_50hz(wav, sr)
         S_bg = S_db.cpu().numpy()
 
-        plot_indices_with_phone_annotations(label, phones, S_bg=S_bg)
-        plt.savefig(Path(__file__).parent / "plots" / "spec" / f"{file_id}.png")
+        plot_indices_with_phone_annotations(label, phones, adj_dist_norm, S_bg=S_bg)
+        plt.savefig(Path(__file__).parent / "plots" / "dist" / f"{file_id}.png")
