@@ -46,7 +46,13 @@ def mel_spectrogram_50hz(
 
 
 def plot_indices_with_phone_annotations(
-    indices, phones, dist_norm, S_bg=None, cmap_name="plasma"
+    indices,
+    phones,
+    dist_norm,
+    S_bg=None,
+    cmap_name="plasma",
+    note_h=0.8,  # <-- the only knob you care about
+    inches_per_lane=0.18,  # auto-scale figure height (leave this alone)
 ):
     indices = np.asarray(indices)
 
@@ -57,53 +63,57 @@ def plot_indices_with_phone_annotations(
     values = indices[starts]
     lengths = ends - starts
 
-    fig, ax = plt.subplots(figsize=(16, 3))
+    # ----- y-range -----
+    y_min_val = int(indices.min())
+    y_max_val = int(indices.max())
+    n_lanes = (y_max_val - y_min_val) + 1
+
+    # pad so phone text fits below
+    ymin = y_min_val - 2
+    ymax = y_max_val + 1
+
+    # ----- auto figure height based on lanes + note thickness -----
+    fig_h = max(2.0, n_lanes * inches_per_lane * (note_h / 0.8))
+    fig, ax = plt.subplots(figsize=(16, fig_h))
 
     # ----- Optional spectrogram background -----
-    ymin = indices.min() - 2
-    ymax = indices.max() + 1
-
     if S_bg is not None:
-        # S_bg expected shape [F, T] where T should match len(indices) (or close)
         S_bg = np.asarray(S_bg)
-
-        # If time dims mismatch, crop to the overlapping region
         T = min(S_bg.shape[1], len(indices))
         S_bg = S_bg[:, :T]
-
         ax.imshow(
             S_bg,
             origin="lower",
             aspect="auto",
-            extent=[0, T, ymin, ymax],  # stretch freq axis into your index y-range
+            extent=[0, T, ymin, ymax],
             interpolation="nearest",
             alpha=0.5,
             zorder=0,
         )
-
-    # Put everything else above the background
-    ax.set_zorder(1)
-    ax.patch.set_alpha(0.0)
+        ax.set_zorder(1)
+        ax.patch.set_alpha(0.0)
 
     cmap = plt.get_cmap(cmap_name)
 
     # ----- MIDI-like blocks -----
+    half = note_h / 2
     for v, s, L in zip(values, starts, lengths):
-        color = cmap(dist_norm[v])
-        ax.broken_barh([(s, L)], (v - 0.4, 0.8), zorder=2, facecolors=color)
+        color = cmap(dist_norm[int(v)])
+        ax.broken_barh(
+            [(s, L)], (v - half, note_h), zorder=2, facecolors=color, edgecolors="none"
+        )
 
     # ----- Phones: spans + annotations -----
     for p in phones:
         if p["token"] in {"[PAD]", "<pad>", "|"}:
             continue
-        t0 = p["start"]
-        t1 = p["end"]
+        t0, t1 = p["start"], p["end"]
 
         ax.axvspan(t0, t1, facecolor="none", edgecolor="black", linewidth=0.2, zorder=3)
 
         ax.annotate(
             p["token"],
-            ((t0 + t1) / 2, indices.min() - 4),
+            ((t0 + t1) / 2, y_min_val - 3),  # anchored below lanes
             ha="center",
             va="top",
             fontsize=8,
