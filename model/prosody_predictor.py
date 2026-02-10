@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import logging
 
-from .duration_predictor import DurationPredictor
+from .conv_decoder import DurationPredictor
 
 
 class ProsodyPredictor(nn.Module):
