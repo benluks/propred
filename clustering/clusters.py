@@ -1,7 +1,11 @@
+import logging
+import joblib
+import argparse
 from pathlib import Path
 import numpy as np
 from sklearn.cluster import KMeans
 import torch
+from tqdm import tqdm
 
 
 BNS_PATH = Path(__file__).parent / "bns"
@@ -16,7 +20,11 @@ def cluster(x):
         x = x.cpu().numpy()
     kmeans = KMeans(n_clusters=48, random_state=0, n_init="auto").fit(x)
 
-    return torch.from_numpy(kmeans.labels_), torch.from_numpy(kmeans.cluster_centers_)
+    return (
+        torch.from_numpy(kmeans.labels_),
+        torch.from_numpy(kmeans.cluster_centers_),
+        kmeans,
+    )
 
 
 def run_length(arr):
@@ -125,14 +133,48 @@ def spectral_order(centroids: torch.Tensor, k_nn: int = 8, sigma: float | None =
 
 if __name__ == "__main__":
 
+    argument_parser = argparse.ArgumentParser()
+    argument_parser.add_argument(
+        "--bns_path", default="../prosody_flow/data/LJSpeech-1.1/latents"
+    )
+    argument_parser.add_argument(
+        "--out_path", default="../prosody_flow/data/LJSpeech-1.1"
+    )
+    args = argument_parser.parse_args()
+
     chunks = []
     Ts = []
+    file_ids = []
 
-    for f in BNS_PATH.glob("*.pt"):
+    for f in tqdm(
+        Path(args.bn_path).glob("*.pt"),
+        desc=f"Fetching bns from {str(Path(args.bn_path))}...",
+    ):
         bn = torch.load(f).transpose(0, 1)
         T, _ = bn.shape
         Ts.append(T)
         chunks.append(bn)
+        file_ids.append(f.stem)
 
     x = torch.cat(chunks)
-    labels, centroids = cluster(x)
+    labels, centroids, kmeans = cluster(x)
+
+    out_path = Path(args.out_path)
+    logging.info(f"Saving embedding matrix to {str(out_path / 'embeddings.pt')}...")
+    torch.save(centroids, out_path / "embeddings.pt")
+
+    Ts = np.array([0] + Ts)
+    Ts = np.cumsum(Ts)
+
+    emb_out_path = out_path / "emb_ids"
+
+    for start, end, file_id in enumerate(
+        tqdm(
+            zip(Ts[:-1], Ts[1:], file_ids),
+            desc=f"Saving embeddings to {str(emb_out_path)}",
+        )
+    ):
+        torch.save(labels[start:end], emb_out_path / f"{file_id}.pt")
+
+    logging.info(f"Saving kmeans model to {str(out_path / 'kmeans.joblib')}...")
+    joblib.dump(kmeans, out_path / "kmeans.joblib")
