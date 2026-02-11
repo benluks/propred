@@ -1,8 +1,40 @@
+from pathlib import Path
 import torch
 import torch.nn as nn
 import logging
 
-from .conv_decoder import ConvDecoder
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from model.conv_decoder import ConvDecoder
+
+
+class DurationPredictor(nn.Module):
+
+    def __init__(self, embeddings_path, output_dim=1, **conv_kwargs):
+        super().__init__()
+        embeddings_matrix = torch.load(embeddings_path)
+        num_embeddings, embedding_dim = embeddings_matrix.shape
+        self.embedding = nn.Embedding.from_pretrained(embeddings_matrix, freeze=True)
+        for p in self.embedding.parameters():
+            p.requires_grad = False
+
+        self.conv = ConvDecoder(embedding_dim, **conv_kwargs)
+        self.proj = self.proj = nn.Linear(self.conv.filter_channels, output_dim)
+
+    def forward(self, x, x_mask):
+
+        x_mask = x_mask.unsqueeze(1)
+
+        with torch.no_grad():
+            x = self.embedding(x)
+        x = x.transpose(1, 2)
+        x = self.conv(x, x_mask)
+
+        x = self.proj(x.transpose(1, 2)).squeeze(-1)
+        return x * x_mask.squeeze(1)
 
 
 class ProsodyPredictor(nn.Module):
@@ -16,44 +48,41 @@ class ProsodyPredictor(nn.Module):
 
     def __init__(
         self,
-        *,
-        rep_dim: int,
-        n_speakers: int,
-        spk_dim: int,
+        embeddings_path: str | Path,
         filter_channels: int,
         kernel_size: int,
         p_dropout: float,
-        vuv_output: str = "logits",  # "logits" or "prob"
         rep_proj_dim: int | None = None,  # set to rep_dim to keep same; or None to skip
+        heads=["f0", "vuv"],
     ):
         super().__init__()
 
-        self.spk_emb = nn.Embedding(n_speakers, spk_dim)
+        embeddings_matrix = torch.load(embeddings_path)
+        self.embedding = nn.Embedding.from_pretrained(embeddings_matrix, freeze=True)
+        for p in self.embedding.parameters():
+            p.requires_grad = False
 
         # Optional rep projection (handy if your reps are huge and you want a smaller trunk)
-        representation_dimension = rep_dim
+        emb_dim = embeddings_matrix.shape[-1]
         if rep_proj_dim is not None:
-            self.rep_proj = nn.Conv1d(rep_dim, rep_proj_dim, kernel_size=1)
-            representation_dimension = rep_proj_dim
+            self.rep_proj = nn.Conv1d(emb_dim, rep_proj_dim, kernel_size=1)
+            emb_dim = rep_proj_dim
         else:
             self.rep_proj = None
 
-        self.duration_predictor = ConvDecoder(
-            representation_dimension + spk_dim, filter_channels, kernel_size, p_dropout
-        )
+        self.conv = ConvDecoder(emb_dim, filter_channels, kernel_size, p_dropout)
 
-        # Heads: Conv1d -> 1 channel
-        self.f0_head = nn.Conv1d(filter_channels, 1, kernel_size=1)  # log-f0 regression
-        self.vuv_head = nn.Conv1d(
-            filter_channels, 1, kernel_size=1
-        )  # vuv classification
-        self.rms_head = nn.Conv1d(filter_channels, 1, kernel_size=1)  # rms regression
+        self.heads = []
+        for head_feature in heads:
+            head = nn.Conv1d(filter_channels, 1, kernel_size=1)
+            setattr(
+                self,
+                f"{head_feature}_head",
+                head,
+            )
+            self.heads.append(head)
 
-        if vuv_output not in ("logits", "prob"):
-            raise ValueError("vuv_output must be 'logits' or 'prob'")
-        self.vuv_output = vuv_output
-
-    def forward(self, wavs, spk_id, x_mask):
+    def forward(self, x, x_mask):
         """
         reps:   [B, D_rep, T]
         spk_id: [B] (int64 speaker indices)
@@ -65,43 +94,26 @@ class ProsodyPredictor(nn.Module):
           rms:    [B, T]
         """
 
-        logging.info(
-            f"BN extractor device: {next(self.bn_extractor.parameters()).device}"
-        )
         with torch.no_grad():
-            reps = self.bn_extractor.get_bn(wavs)
-
-        *_, T = reps.shape
+            x = self.embedding(x)
+        x = x.transpose(1, 2)
 
         if self.rep_proj is not None:
-            reps = self.rep_proj(reps)
+            x = self.rep_proj(x)
+        x_mask = x_mask.unsqueeze(1)
+        x = self.conv(x, x_mask)
 
-        spk = self.spk_emb(spk_id)  # [B, D_spk]
-        spk = spk.unsqueeze(-1).expand(-1, -1, T)  # [B, D_spk, T]
-
-        x = torch.cat([reps, spk], dim=1)  # [B, D_rep' + D_spk, T]
-
-        # reps dimension and f0/vuv/energy dimenstion don't always match; trim to smallest length
-        min_T = min(x.shape[-1], x_mask.shape[-1])
-        x = x[..., :min_T]
-        x_mask = x_mask[..., :min_T]
-
-        x = self.duration_predictor(x, x_mask)
-
-        log_f0 = self.f0_head(x) * x_mask  # [B, 1, T]
-        vuv = self.vuv_head(x) * x_mask  # [B, 1, T]
-        rms = self.rms_head(x) * x_mask  # [B, 1, T]
-
-        # squeeze channel -> [B, T]
-        log_f0 = log_f0.squeeze(1)
-        vuv = vuv.squeeze(1)
-        rms = rms.squeeze(1)
-
-        if self.vuv_output == "prob":
-            vuv = torch.sigmoid(vuv)
-
-        return log_f0, vuv, rms
+        head_outputs = [(head(x) * x_mask).squeeze(1) for head in self.heads]
+        return tuple(head_outputs)
 
 
 if __name__ == "__main__":
-    dp = ConvDecoder(256, 256, 3, 0.1)
+
+    pp = ProsodyPredictor(
+        "/Users/ben/dev/propred/data/LJSpeech-1.1/embeddings.pt", 256, 3, 0.1
+    )
+    x = torch.randint(47, (1, 403))
+    x_mask = torch.ones_like(x)
+
+    y = pp(x, x_mask)
+    print('hi')

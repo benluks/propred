@@ -65,39 +65,3 @@ class ConvDecoder(nn.Module):
         x = self.drop(x)
 
         return x
-
-
-class DurationPredictor(nn.Module):
-
-    def __init__(self, embeddings_path, output_dim=1, **conv_kwargs):
-        super().__init__()
-        embeddings_matrix = torch.load(embeddings_path)
-        num_embeddings, embedding_dim = embeddings_matrix.shape
-        self.embedding = nn.Embedding.from_pretrained(embeddings_matrix, freeze=True)
-        for p in self.embedding.parameters():
-            p.requires_grad = False
-
-        self.conv = ConvDecoder(embedding_dim, **conv_kwargs)
-        self.proj = self.proj = nn.Linear(self.conv.filter_channels, output_dim)
-
-    def forward(self, x, x_mask):
-
-        x_mask = x_mask.unsqueeze(1)
-
-        with torch.no_grad():
-            x = self.embedding(x)
-        x = x.transpose(1, 2)
-        x = self.conv(x, x_mask)
-
-        x = self.proj(x.transpose(1, 2)).squeeze(-1)
-        return x * x_mask.squeeze(1)
-
-
-if __name__ == "__main__":
-    dp = DurationPredictor(
-        "/Users/ben/dev/propred/data/LJSpeech-1.1/embeddings.pt",
-    )
-    x = torch.randint(47, (1, 403))
-    x_mask = torch.ones_like(x)
-
-    y = dp(x, x_mask)
