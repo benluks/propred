@@ -3,3 +3,6 @@
 trainer_output
 **/__pycache__
 f0_stats/*hz.*
+data/latents
+data/LJSpeech*
+lightning_logs

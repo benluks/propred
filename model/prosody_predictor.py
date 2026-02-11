@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import logging
 
-from .conv_decoder import DurationPredictor
+from .conv_decoder import ConvDecoder
 
 
 class ProsodyPredictor(nn.Module):
@@ -29,15 +29,6 @@ class ProsodyPredictor(nn.Module):
         super().__init__()
 
         self.spk_emb = nn.Embedding(n_speakers, spk_dim)
-        self.bn_extractor = torch.hub.load(
-            "deep-privacy/SA-toolkit",
-            "anonymization",
-            tag_version="hifigan_bn_tdnnf_wav2vec2_vq_48_v1",
-            trust_repo=True,
-        )
-        self.bn_extractor.eval()
-        for parameter in self.bn_extractor.parameters():
-            parameter.requires_grad = False
 
         # Optional rep projection (handy if your reps are huge and you want a smaller trunk)
         representation_dimension = rep_dim
@@ -47,7 +38,7 @@ class ProsodyPredictor(nn.Module):
         else:
             self.rep_proj = None
 
-        self.duration_predictor = DurationPredictor(
+        self.duration_predictor = ConvDecoder(
             representation_dimension + spk_dim, filter_channels, kernel_size, p_dropout
         )
 
@@ -113,4 +104,4 @@ class ProsodyPredictor(nn.Module):
 
 
 if __name__ == "__main__":
-    dp = DurationPredictor(256, 256, 3, 0.1)
+    dp = ConvDecoder(256, 256, 3, 0.1)
