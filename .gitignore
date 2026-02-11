@@ -4,5 +4,5 @@ trainer_output
 **/__pycache__
 f0_stats/*hz.*
 data/latents
-data/LJSpeech*
+data/LJSpeech-1.1
 lightning_logs
