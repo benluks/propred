@@ -12,6 +12,8 @@ from torch.nn.utils.rnn import pad_sequence
 import sys
 from pathlib import Path
 
+from model.predictor import DurationPredictor
+
 # add project root to PYTHONPATH
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -68,16 +70,19 @@ class DurationRegressor(L.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.model = ConvDecoder(
+        self.model = DurationPredictor(
             embeddings_path=embeddings_path,
+            output_dim=1,
             filter_channels=filter_channels,
             kernel_size=kernel_size,
             p_dropout=p_dropout,
-            output_dim=1,
         )
         self.lr = lr
         self.weight_decay = weight_decay
         self.loss_type = loss_type
+
+    def forward(self, values, mask):
+        return self.model(values, mask)
 
     def training_step(self, batch: Batch, batch_idx: int):
         values = batch.values.to(self.device)  # (B, R)

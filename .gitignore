@@ -5,4 +5,5 @@ trainer_output
 f0_stats/*hz.*
 data/latents
 data/LJSpeech-1.1
+data/LibriTTS
 lightning_logs

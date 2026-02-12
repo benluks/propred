@@ -2,42 +2,46 @@ from pathlib import Path
 import torch
 from torch.utils.data import Dataset
 
+from data.utils import load_audio
 from utils.run_lengths import rle_encode_1d
 
 
 class DurationsDataset(Dataset):
     def __init__(
-        self, root: str | Path, pattern: str = "*.pt", return_meta: bool = False
+        self,
+        root: str | Path,
+        pattern: str = "*.pt",
+        embs_folder="emb_ids",
+        return_wav=True,
+        wavs_folder="wavs",
+        target_sr=16000,
     ):
+
         self.root = Path(root)
-        self.files = sorted(self.root.glob(pattern))
+        self.embs_path = self.root / embs_folder
+        self.files = sorted(self.embs_path.glob(pattern))
+        self.return_wav = return_wav
+        if self.return_wav:
+            self.wavs = sorted((self.root / wavs_folder).glob("*.wav"))
+            assert len(self.wavs) == len(self.files)
+        self.target_sr = target_sr
+
         if not self.files:
             raise FileNotFoundError(f"No files matched {pattern} in {self.root}")
-        self.return_meta = return_meta
 
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, i: int):
         path = self.files[i]
-        x = torch.load(path)  # expected: 1D integer tensor
+        utt_id = path.stem
+        x = torch.load(path).to(torch.long).flatten()
 
-        # If it’s saved as something else (e.g., dict), adapt here
-        # e.g., x = x["indices"]
+        values, durations, *_ = rle_encode_1d(x)
 
-        x = x.to(torch.long).flatten()  # enforce 1D
-
-        values, durations, starts, ends = rle_encode_1d(x)
-
-        if self.return_meta:
-            meta = {
-                "path": str(path),
-                "T": int(x.numel()),
-                "R": int(values.numel()),
-                "starts": starts,
-                "ends": ends,
-            }
-            return values, durations, meta
+        if self.return_wav:
+            wav = load_audio(self.wavs[i], self.target_sr)
+            return values, durations, wav, utt_id
 
         return values, durations
 

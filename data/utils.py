@@ -200,3 +200,32 @@ def warp_f0_by_durations(
         y = torch.exp(y)
 
     return y
+
+
+from collections import OrderedDict
+from pathlib import Path
+import torch
+
+
+def rewrite_duration_ckpt_for_modular_model(in_path: str | Path, out_path: str | Path):
+    ckpt = torch.load(in_path, map_location="cpu")
+
+    old_sd = ckpt["state_dict"]
+    new_sd = OrderedDict()
+
+    for k, v in old_sd.items():
+        # old: model.conv_1.* / model.norm_1.* / model.conv_2.* / model.norm_2.*
+        # new: model.conv.conv_1.* / model.conv.norm_1.* / ...
+        if k.startswith("model.") and k[len("model.") :].startswith(
+            ("conv_1.", "conv_2.", "norm_1.", "norm_2.")
+        ):
+            k = "model.conv." + k[len("model.") :]
+        # embedding + proj stay the same: model.embedding.* , model.proj.*
+        new_sd[k] = v
+
+    ckpt["state_dict"] = new_sd
+    torch.save(ckpt, out_path)
+
+
+
+# model = DurationRegressor.load_from_checkpoint("rewritten.ckpt")  # now works

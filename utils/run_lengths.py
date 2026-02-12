@@ -45,6 +45,28 @@ def get_run_lengths(x):
     return run_lengths
 
 
+def expand_by_duration(values: torch.Tensor, durations: torch.Tensor) -> torch.Tensor:
+    """
+    values:    (R,) int tensor (run values)
+    durations: (R,) int tensor (run lengths in frames)
+    returns:   (sum(durations),) int tensor
+    """
+    ndim = values.ndim
+    values = values.to(torch.long).flatten()
+    durations = durations.to(torch.long).flatten()
+
+    if values.numel() != durations.numel():
+        raise ValueError("values and durations must have same length")
+
+    if (durations < 0).any():
+        raise ValueError("durations must be non-negative")
+
+    expanded = torch.repeat_interleave(values, durations)
+    if ndim == 2:
+        return expanded.unsqueeze(0)
+    return expanded
+
+
 def plot_run_lengths(run_lengths):
     hist = torch.bincount(run_lengths)
 

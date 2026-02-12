@@ -6,7 +6,7 @@ import torchaudio.transforms as T
 from tqdm import tqdm
 from torchcodec import AudioSamples
 
-from data.data import HFStreamingWrapper
+from data.prosody_flow import HFStreamingWrapper
 
 TARGET_SR = 16_000
 DEVICE = "mps"
