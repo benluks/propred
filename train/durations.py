@@ -1,26 +1,22 @@
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+import sys
 from typing import List, Tuple
 
-import lightning as L
 import torch
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 
-import sys
-from pathlib import Path
+import lightning as L
+from lightning.pytorch.loggers import TensorBoardLogger
 
-from model.predictor import DurationPredictor
-
-# add project root to PYTHONPATH
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-
+from model.predictor import DurationPredictor
 from data.ljspeech import DurationsDataset
-from model.conv_decoder import ConvDecoder
 from utils.config import load_config
 
 
@@ -66,6 +62,7 @@ class DurationRegressor(L.LightningModule):
         kernel_size: int = 3,
         p_dropout: float = 0.1,
         loss_type: str = "l1",  # "l1" or "mse" or "huber"
+        do_log=False,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -80,6 +77,7 @@ class DurationRegressor(L.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.loss_type = loss_type
+        self.do_log = do_log
 
     def forward(self, values, mask):
         return self.model(values, mask)
@@ -91,6 +89,9 @@ class DurationRegressor(L.LightningModule):
 
         pred = self.model(values, mask)  # (B, R) float
         target = durations.float()
+
+        if self.do_log():
+            target = torch.log1p(target)
 
         if self.loss_type == "mse":
             loss_per = (pred - target) ** 2
@@ -106,6 +107,13 @@ class DurationRegressor(L.LightningModule):
             mae = ((pred - target).abs() * mask).sum() / mask.sum().clamp_min(1.0)
             self.log("train/loss", loss, prog_bar=True)
             self.log("train/mae", mae, prog_bar=True)
+
+            if self.do_log:
+                pred_lin = torch.expm1(pred).clamp_min(0.0)
+                mae_lin = (
+                    (pred_lin - durations.float()).abs() * mask
+                ).sum() / mask.sum().clamp_min(1.0)
+                self.log("train/mae_linear", mae_lin, prog_bar=False)
 
         return loss
 
@@ -129,37 +137,42 @@ def main():
     args = p.parse_args()
 
     cfg = load_config(args.config)
-    ds = DurationsDataset(
-        cfg.data.root,
-        pattern=cfg.data.pattern,
-    )
+    ds = DurationsDataset(**cfg.data.__dict__)
 
+    # dl_kwargs = cfg.dataloader.__dict__
+    # pad_value = dl_kwargs.pop("pad_value")
     dl = DataLoader(
         ds,
-        batch_size=cfg.data.batch_size,
         shuffle=True,
-        num_workers=cfg.data.num_workers,
         pin_memory=True,
-        collate_fn=partial(collate_values_durations, pad_value=cfg.data.pad_value),
-        persistent_workers=(cfg.data.num_workers > 0),
+        batch_size=cfg.dataloader.batch_size,
+        num_workers=cfg.dataloader.num_workers,
+        persistent_workers=(cfg.dataloader.num_workers > 0),
+        collate_fn=partial(
+            collate_values_durations, pad_value=cfg.dataloader.pad_value
+        ),
     )
 
-    lit = DurationRegressor(
-        embeddings_path=cfg.model.embeddings_path,
-        lr=cfg.optim.lr,
-        weight_decay=cfg.optim.weight_decay,
-        filter_channels=cfg.model.filter_channels,
-        kernel_size=cfg.model.kernel_size,
-        p_dropout=cfg.model.dropout,
-        loss_type=cfg.optim.loss,
-    )
+    lit = DurationRegressor(**cfg.model.__dict__)
 
     trainer = L.Trainer(
-        max_epochs=cfg.optim.epochs,
+        max_epochs=cfg.trainer.epochs,
         accelerator=cfg.trainer.accelerator,
         devices=cfg.trainer.devices,
         precision=cfg.trainer.precision,
         log_every_n_steps=getattr(cfg.trainer, "log_every_n_steps", 50),
+        logger=TensorBoardLogger(
+            save_dir="lightning_logs",
+            name="duration",
+        ),
+        callbacks=[
+            L.pytorch.callbacks.ModelCheckpoint(
+                monitor="train/loss",
+                mode="min",
+                save_top_k=1,
+                save_last=True,
+            )
+        ],
     )
 
     trainer.fit(lit, train_dataloaders=dl)

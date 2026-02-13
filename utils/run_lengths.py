@@ -45,6 +45,28 @@ def get_run_lengths(x):
     return run_lengths
 
 
+def singleton_kill(values, lengths, k=1):
+    """
+    values:  [R]
+    lengths: [R]
+    k: max length to consider a glitch (1 = singleton)
+
+    returns:
+        new_values, new_lengths
+    """
+    values = values.clone()
+    lengths = lengths.clone()
+
+    R = len(values)
+    for i in range(1, R - 1):
+        if lengths[i] <= k:
+            if values[i - 1] == values[i + 1]:
+                # kill the singleton
+                values[i] = values[i - 1]
+
+    return values, lengths
+
+
 def expand_by_duration(values: torch.Tensor, durations: torch.Tensor) -> torch.Tensor:
     """
     values:    (R,) int tensor (run values)

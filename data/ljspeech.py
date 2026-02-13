@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset
 
 from data.utils import load_audio
-from utils.run_lengths import rle_encode_1d
+from utils.run_lengths import rle_encode_1d, singleton_kill
 
 
 class DurationsDataset(Dataset):
@@ -12,22 +12,30 @@ class DurationsDataset(Dataset):
         root: str | Path,
         pattern: str = "*.pt",
         embs_folder="emb_ids",
+        split=None,
         return_wav=True,
         wavs_folder="wavs",
+        wavs_pattern="*.wav",
         target_sr=16000,
+        kill_singletons: int = 0,
     ):
 
         self.root = Path(root)
-        self.embs_path = self.root / embs_folder
+        self.split = split
+        self.embs_path = self.root / embs_folder / split
+        if self.split:
+            self.embs_path = self.embs_path / split
         self.files = sorted(self.embs_path.glob(pattern))
+        if not self.files:
+            raise FileNotFoundError(f"No files matched {pattern} in {self.embs_path}")
+
         self.return_wav = return_wav
         if self.return_wav:
-            self.wavs = sorted((self.root / wavs_folder).glob("*.wav"))
+            self.wavs = sorted((self.root / wavs_folder).glob(wavs_pattern))
             assert len(self.wavs) == len(self.files)
         self.target_sr = target_sr
 
-        if not self.files:
-            raise FileNotFoundError(f"No files matched {pattern} in {self.root}")
+        self.kill_singletons = kill_singletons
 
     def __len__(self):
         return len(self.files)
@@ -38,6 +46,10 @@ class DurationsDataset(Dataset):
         x = torch.load(path).to(torch.long).flatten()
 
         values, durations, *_ = rle_encode_1d(x)
+        if self.kill_singletons > 0:
+            values, durations = singleton_kill(
+                values, durations, k=self.kill_singletons
+            )
 
         if self.return_wav:
             wav = load_audio(self.wavs[i], self.target_sr)

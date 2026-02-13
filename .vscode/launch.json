@@ -15,6 +15,26 @@
                 "configs/example.yaml"
             ],
             "justMyCode": false
+        },
+        {
+            "name": "eval pred",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "eval/durations.py",
+            "args": [
+                "--dataset-root",
+                "/Users/ben/dev/propred/data/LibriTTS",
+                "--split",
+                "test-clean",
+                "--target-speaker",
+                "1069",
+                "--C",
+                "0.7",
+                "--dp-ckpt",
+                "/Users/ben/dev/propred/lightning_logs/duration/adapted.ckpt",
+            ],
+            "justMyCode": false
         }
     ]
 }

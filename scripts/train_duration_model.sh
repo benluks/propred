@@ -1,0 +1,1 @@
+uv run train/durations.py --config configs/smooth_1.yaml
