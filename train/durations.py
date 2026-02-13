@@ -155,15 +155,12 @@ def main():
 
     lit = DurationRegressor(**cfg.model.__dict__)
 
+    trainer_kwargs = cfg.trainer.__dict__
+    version = trainer_kwargs.pop("version")
+
     trainer = L.Trainer(
-        max_epochs=cfg.trainer.epochs,
-        accelerator=cfg.trainer.accelerator,
-        devices=cfg.trainer.devices,
-        precision=cfg.trainer.precision,
-        log_every_n_steps=getattr(cfg.trainer, "log_every_n_steps", 50),
         logger=TensorBoardLogger(
-            save_dir="lightning_logs",
-            name="duration",
+            save_dir="lightning_logs", name="duration", version=version
         ),
         callbacks=[
             L.pytorch.callbacks.ModelCheckpoint(
@@ -173,6 +170,7 @@ def main():
                 save_last=True,
             )
         ],
+        **trainer_kwargs,
     )
 
     trainer.fit(lit, train_dataloaders=dl)

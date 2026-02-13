@@ -24,6 +24,7 @@ model:
   lr: 0.001
   weight_decay: 0.0
   loss_type: l1 # l1 | mse | huber
+  do_log: true
 
 # -------------------------
 # Trainer
@@ -34,4 +35,4 @@ trainer:
   devices: auto
   precision: 32 # or 16-mixed
   log_every_n_steps: 50
-  version: smooth_1_linear_50e
+  version: smooth_1_log_50e
