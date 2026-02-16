@@ -69,6 +69,8 @@ class DurationRegressor(L.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
+        self.do_log = do_log
+        
         self.model = DurationPredictor(
             embeddings_path=embeddings_path,
             output_dim=1,
@@ -76,12 +78,12 @@ class DurationRegressor(L.LightningModule):
             kernel_size=kernel_size,
             p_dropout=p_dropout,
             padding_idx=padding_idx,
-            n_layers=n_layers
+            n_layers=n_layers,
+            do_log=self.do_log
         )
         self.lr = lr
         self.weight_decay = weight_decay
         self.loss_type = loss_type
-        self.do_log = do_log
 
     def forward(self, values, mask):
         return self.model(values, mask)

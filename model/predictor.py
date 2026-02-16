@@ -14,7 +14,9 @@ from model.conv_decoder import ConvDecoder
 
 class DurationPredictor(nn.Module):
 
-    def __init__(self, embeddings_path, output_dim=1, n_layers=1, **conv_kwargs):
+    def __init__(
+        self, embeddings_path, output_dim=1, n_layers=1, do_log=False, **conv_kwargs
+    ):
         super().__init__()
         embeddings_matrix = torch.load(embeddings_path)
         num_embeddings, embedding_dim = embeddings_matrix.shape
@@ -44,6 +46,7 @@ class DurationPredictor(nn.Module):
             features = layer.filter_channels
 
         self.proj = self.proj = nn.Linear(features, output_dim)
+        self.do_log = self.do_log
 
     def forward(self, x, x_mask):
 
