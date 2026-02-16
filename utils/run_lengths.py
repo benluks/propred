@@ -131,12 +131,18 @@ def singleton_kill_batch(
       lengths2: [B, Rmax2]
       rmask2:   [B, Rmax2]
     """
+    
+    if k < 1:
+        return values, lengths, rmask
+    
     B, Rmax = values.shape
     device = values.device
 
     vals_list = []
     lens_list = []
     Rmax2 = 0
+
+    
 
     for b in range(B):
         v = values[b][rmask[b]]
