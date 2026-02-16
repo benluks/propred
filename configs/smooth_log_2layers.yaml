@@ -26,6 +26,7 @@ model:
   loss_type: l1 # l1 | mse | huber
   padding_idx: -1
   do_log: true
+  n_layers: 2
 
 # -------------------------
 # Trainer
@@ -36,4 +37,4 @@ trainer:
   devices: auto
   precision: 32 # or 16-mixed
   log_every_n_steps: 50
-  version: smooth_log_50e
+  version: smooth_log_2layers_50e

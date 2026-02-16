@@ -35,7 +35,6 @@ class ConvDecoder(nn.Module):
         filter_channels=256,
         kernel_size=3,
         p_dropout=0.1,
-        output_dim=1,
     ):
         super().__init__()
         self.filter_channels = filter_channels

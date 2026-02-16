@@ -27,7 +27,7 @@ class Batch:
 
 
 def collate_pitch(
-    batch: List[Tuple[torch.Tensor, Dict[str, torch.Tensor]]], pad_value: int = 0
+    batch: List[Tuple[torch.Tensor, Dict[str, torch.Tensor]]], pad_value: int = -1
 ) -> Batch:
     xs, feats_list = zip(*batch)
 
@@ -173,7 +173,6 @@ def main():
     p.add_argument(
         "--num_workers", type=int, default=0
     )  # macOS/MPS: keep 0 to avoid shm issues
-    p.add_argument("--pad_value", type=int, default=0)
 
     p.add_argument("--epochs", type=int, default=20)
     p.add_argument("--lr", type=float, default=1e-3)

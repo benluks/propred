@@ -3,4 +3,5 @@ uv run eval/durations.py \
   --split test-clean \
   --target-speaker 1069 \
   --C 0 \
-  --dp-ckpt /Users/ben/dev/propred/lightning_logs/duration/adapted.ckpt
+  --dp-ckpt /Users/ben/dev/propred/lightning_logs/duration/smooth_log_50e/checkpoints/epoch=33-step=13940.ckpt \
+  --smooth 1

@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from pathlib import Path
 import torch
 import torch.nn as nn
@@ -13,25 +14,52 @@ from model.conv_decoder import ConvDecoder
 
 class DurationPredictor(nn.Module):
 
-    def __init__(self, embeddings_path, output_dim=1, **conv_kwargs):
+    def __init__(self, embeddings_path, output_dim=1, n_layers=1, **conv_kwargs):
         super().__init__()
         embeddings_matrix = torch.load(embeddings_path)
         num_embeddings, embedding_dim = embeddings_matrix.shape
-        self.embedding = nn.Embedding.from_pretrained(embeddings_matrix, freeze=True)
+        self.embedding = nn.Embedding.from_pretrained(
+            embeddings_matrix,
+            freeze=True,
+            padding_idx=conv_kwargs.pop("padding_idx", 0),
+        )
         for p in self.embedding.parameters():
             p.requires_grad = False
 
-        self.conv = ConvDecoder(embedding_dim, **conv_kwargs)
-        self.proj = self.proj = nn.Linear(self.conv.filter_channels, output_dim)
+        # for posterity
+        if n_layers == 1:
+            self.conv = ConvDecoder(embedding_dim, **conv_kwargs)
+            features = self.conv.filter_channels
+
+        else:
+            input_dim = embedding_dim
+            conv = []
+
+            for _ in range(n_layers):
+                layer = ConvDecoder(input_dim, **conv_kwargs)
+                conv.append(layer)
+                input_dim = layer.filter_channels
+
+            self.conv = nn.Sequential(*conv)
+            features = layer.filter_channels
+
+        self.proj = self.proj = nn.Linear(features, output_dim)
 
     def forward(self, x, x_mask):
 
+        with torch.no_grad():
+            x = self.embedding(x * x_mask.detach().to(x.dtype))
+
+        x = x.transpose(1, 2)
         x_mask = x_mask.unsqueeze(1)
 
-        with torch.no_grad():
-            x = self.embedding(x)
-        x = x.transpose(1, 2)
-        x = self.conv(x, x_mask)
+        if not isinstance(self.conv, Iterable):
+            x = self.conv(x, x_mask)
+        else:
+            for layer in self.conv:
+                res = x
+                x = layer(x, x_mask)
+                x = (x + res) * x_mask
 
         x = self.proj(x.transpose(1, 2)).squeeze(-1)
         return x * x_mask.squeeze(1)
@@ -95,7 +123,7 @@ class ProsodyPredictor(nn.Module):
         """
 
         with torch.no_grad():
-            x = self.embedding(x)
+            x = self.embedding(x * x_mask)
         x = x.transpose(1, 2)
 
         if self.rep_proj is not None:
@@ -116,4 +144,4 @@ if __name__ == "__main__":
     x_mask = torch.ones_like(x)
 
     y = pp(x, x_mask)
-    print('hi')
+    print("hi")

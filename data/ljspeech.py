@@ -22,7 +22,7 @@ class DurationsDataset(Dataset):
 
         self.root = Path(root)
         self.split = split
-        self.embs_path = self.root / embs_folder / split
+        self.embs_path = self.root / embs_folder
         if self.split:
             self.embs_path = self.embs_path / split
         self.files = sorted(self.embs_path.glob(pattern))

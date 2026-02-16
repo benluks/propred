@@ -16,7 +16,7 @@ from clustering.generate_bns import load_bn_extractor
 from data.ljspeech import DurationsDataset
 from data.utils import warp_f0_by_durations
 from train import DurationRegressor
-from utils.run_lengths import expand_by_duration
+from utils.run_lengths import expand_batch, expand_by_duration
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -31,19 +31,34 @@ class Converter(nn.Module):
         self.device = device
         self.model = load_bn_extractor().to(device)
         self.model.eval()
-        self.duration_predictor = DurationRegressor.load_from_checkpoint(dp_ckpt).to(
-            device
-        )
+        self.duration_predictor = DurationRegressor.load_from_checkpoint(
+            dp_ckpt
+        ).model.to(device)
         if embedding_path:
             embedding = torch.load(embedding_path)
-            self.duration_predictor.model.embedding = nn.Embedding.from_pretrained(
+            self.duration_predictor.embedding = nn.Embedding.from_pretrained(
                 embedding
             ).to(device)
         self.duration_predictor.eval()
         self.target_speaker = target_speaker
 
     @torch.no_grad
-    def forward(self, values, values_mask, wav, orig_durations, C: float = 1.0):
+    def forward(
+        self,
+        wav,
+        orig_durations,
+        C: float = 1.0,
+        values=None,
+        values_mask=None,
+        target_speaker=None,
+        f0=None,
+    ):
+        if wav.ndim == 1:
+            wav = wav.unsqueeze(0)
+
+        if values is None:
+            values = self.model.get_bn(values)
+            values_mask = torch.ones_like(values)
         values, values_mask, wav, orig_durations = (
             values.to(self.device),
             values_mask.to(self.device),
@@ -52,16 +67,17 @@ class Converter(nn.Module):
         )
         if values.ndim == 1:
             values = values.unsqueeze(0)
-        if wav.ndim == 1:
-            wav = wav.unsqueeze(0)
 
         pred_durations = self.duration_predictor(values, values_mask)
+        if self.duration_predictor.do_log:
+            pred_durations = torch.expm1(pred_durations).round().clamp_min(1).long()
         durations = torch.round(C * pred_durations + (1 - C) * orig_durations)
 
-        bn_ids = expand_by_duration(values, durations)
-        bn = self.duration_predictor.model.embedding(bn_ids).transpose(1, 2)
+        bn_ids = expand_batch(values, durations)
+        bn = self.duration_predictor.embedding(bn_ids).transpose(1, 2)
 
-        f0 = self.model.get_f0(wav)
+        if not f0:
+            f0 = self.model.get_f0(wav)
 
         if f0.numel() != orig_durations.sum():
             f0 = F.interpolate(f0.unsqueeze(0), orig_durations.sum())
@@ -70,7 +86,9 @@ class Converter(nn.Module):
             f0, orig_durations, durations, in_log_domain=False
         ).reshape(1, 1, -1)
 
-        spk_id = self.model.get_spk_id(wav, self.target_speaker)
+        spk_id = self.model.get_spk_id(
+            wav, target_speaker if target_speaker else self.target_speaker
+        )
         return self.model._forward(warped_f0, bn, spk_id).squeeze(0)
 
 
@@ -137,6 +155,12 @@ def build_argparser() -> argparse.ArgumentParser:
         help="Path to duration predictor Lightning checkpoint (.ckpt).",
     )
     p.add_argument(
+        "--smooth",
+        type=int,
+        default=0,
+        help="The max size of run to smooth out (passed as `kill_singletons` to durations dataset)",
+    )
+    p.add_argument(
         "--device",
         type=str,
         default="mps",
@@ -168,12 +192,12 @@ def main():
     wavs_folder: str = args.wavs_folder or split
 
     # <dataset_root>/converted/<split>/<target_speaker>/C=<C>/
-    out_dir = (
-        dataset_root
-        / args.out_rootname
-        / split
-        / f"t={str(args.target_speaker)}_C={args.C:g}"
-    )
+
+    out_name = f"t={str(args.target_speaker)}_C={args.C:g}"
+    if args.smooth:
+        out_name += f"smooth={str(args.smooth)}"
+
+    out_dir = dataset_root / args.out_rootname / split / out_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ds = DurationsDataset(
@@ -181,6 +205,7 @@ def main():
         split=split,
         wavs_folder=wavs_folder,
         wavs_pattern=args.wavs_pattern,
+        kill_singletons=args.smooth,
     )
     embedding_path = dataset_root / f"embeddings{f'/{split if split else str()}'}.pt"
     converter = Converter(

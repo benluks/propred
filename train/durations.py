@@ -63,6 +63,8 @@ class DurationRegressor(L.LightningModule):
         p_dropout: float = 0.1,
         loss_type: str = "l1",  # "l1" or "mse" or "huber"
         do_log=False,
+        padding_idx=0,
+        n_layers=1
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -73,6 +75,8 @@ class DurationRegressor(L.LightningModule):
             filter_channels=filter_channels,
             kernel_size=kernel_size,
             p_dropout=p_dropout,
+            padding_idx=padding_idx,
+            n_layers=n_layers
         )
         self.lr = lr
         self.weight_decay = weight_decay
@@ -90,8 +94,8 @@ class DurationRegressor(L.LightningModule):
         pred = self.model(values, mask)  # (B, R) float
         target = durations.float()
 
-        if self.do_log():
-            target = torch.log1p(target)
+        if self.do_log:
+            target[mask.bool()] = torch.log1p(target[mask.bool()])
 
         if self.loss_type == "mse":
             loss_per = (pred - target) ** 2
