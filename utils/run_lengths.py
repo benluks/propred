@@ -67,6 +67,102 @@ def singleton_kill(values, lengths, k=1):
     return values, lengths
 
 
+def singleton_kill_and_merge_1d(
+    values: torch.Tensor, lengths: torch.Tensor, k: int = 1
+):
+    """
+    values:  [R]
+    lengths: [R]
+    returns:
+      values2, lengths2  (merged, canonical RLE)
+    """
+    values = values.clone()
+    lengths = lengths.clone()
+    R = values.numel()
+
+    if R < 3:
+        return values, lengths
+
+    # kill glitches
+    for i in range(1, R - 1):
+        if lengths[i] <= k and values[i - 1] == values[i + 1]:
+            values[i] = values[i - 1]
+
+    # merge adjacent identical runs
+    out_v = []
+    out_l = []
+
+    cur_v = values[0].item()
+    cur_l = lengths[0].item()
+
+    for i in range(1, R):
+        v = values[i].item()
+        l = lengths[i].item()
+        if v == cur_v:
+            cur_l += l
+        else:
+            out_v.append(cur_v)
+            out_l.append(cur_l)
+            cur_v, cur_l = v, l
+
+    out_v.append(cur_v)
+    out_l.append(cur_l)
+
+    return (
+        torch.tensor(out_v, device=values.device, dtype=values.dtype),
+        torch.tensor(out_l, device=lengths.device, dtype=lengths.dtype),
+    )
+
+
+def singleton_kill_batch(
+    values: torch.Tensor,
+    lengths: torch.Tensor,
+    rmask: torch.Tensor,
+    k: int = 1,
+    pad_value: int = -1,
+):
+    """
+    values:  [B, Rmax]
+    lengths: [B, Rmax]
+    rmask:   [B, Rmax] bool
+
+    returns:
+      values2:  [B, Rmax2]
+      lengths2: [B, Rmax2]
+      rmask2:   [B, Rmax2]
+    """
+    B, Rmax = values.shape
+    device = values.device
+
+    vals_list = []
+    lens_list = []
+    Rmax2 = 0
+
+    for b in range(B):
+        v = values[b][rmask[b]]
+        l = lengths[b][rmask[b]]
+
+        v2, l2 = singleton_kill_and_merge_1d(v, l, k=k)
+
+        vals_list.append(v2)
+        lens_list.append(l2)
+        Rmax2 = max(Rmax2, v2.numel())
+
+    values2 = torch.full((B, Rmax2), pad_value, dtype=values.dtype, device=device)
+    lengths2 = torch.zeros((B, Rmax2), dtype=lengths.dtype, device=device)
+    rmask2 = torch.zeros((B, Rmax2), dtype=torch.bool, device=device)
+
+    for b in range(B):
+        Rb = vals_list[b].numel()
+        if Rb == 0:
+            continue
+        values2[b, :Rb] = vals_list[b]
+        lengths2[b, :Rb] = lens_list[b]
+        rmask2[b, :Rb] = True
+
+    return values2, lengths2, rmask2
+
+
 def expand_by_duration(
     values_1d: torch.Tensor, durations_1d: torch.Tensor
 ) -> torch.Tensor:
