@@ -15,9 +15,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from clustering.generate_bns import load_bn_extractor
 from data.ljspeech import DurationsDataset
-from data.utils import warp_f0_by_durations
+from data.utils import warp_f0_by_durations, warp_f0_by_durations_batched
 from train import DurationRegressor
-from utils.run_lengths import (
+from propred.utils.run_lengths import (
     expand_batch,
     expand_by_duration,
     perturb_durations_logjitter,
@@ -71,12 +71,15 @@ class Converter(nn.Module):
         target_speaker=None,
         f0=None,
         dp_kwargs={},
+        pad_value=-1,
     ):
         if wav.ndim == 1:
             wav = wav.unsqueeze(0)
 
+        B, *_ = wav.shape
+
         if values is None:
-            values = self.model.get_bn(values)
+            values = self.model.get_bn(wav)
             values_mask = torch.ones_like(values)
         values, values_mask, wav, orig_durations = (
             values.to(self.device),
@@ -89,25 +92,31 @@ class Converter(nn.Module):
 
         pred_durations = self.duration_predictor(values, mask=values_mask, **dp_kwargs)
         if self.duration_predictor.do_log:
-            pred_durations = torch.expm1(pred_durations).round().clamp_min(1).long()
-        durations = torch.round(C * pred_durations + (1 - C) * orig_durations)
+            pred_durations[values_mask] = torch.expm1(pred_durations[values_mask])
+        durations = torch.round(
+            C * pred_durations.round().long() + (1 - C) * orig_durations
+        )
 
-        bn_ids = expand_batch(values, durations)
-        bn = self.duration_predictor.embedding(bn_ids).transpose(1, 2)
+        bn_ids = expand_batch(values, durations, values_mask, pad_value=pad_value).to(
+            self.device
+        )
+        mask = (bn_ids != pad_value).float().to(self.device)
+        bn = self.duration_predictor.embedding(bn_ids * mask.long()).transpose(1, 2)
 
-        if not f0:
+        if f0 is None:
             f0 = self.model.get_f0(wav)
 
-        if f0.numel() != orig_durations.sum():
-            f0 = F.interpolate(f0.unsqueeze(0), orig_durations.sum())
+        # It's possible that the frame lengths are off by 1, so we interpolate to make sure f0 fits
+        if f0.shape[-1] != orig_durations.sum(1)[0]:
+            f0 = F.interpolate(f0.unsqueeze(0), orig_durations.sum(1)[0]).squeeze(0)
 
-        warped_f0 = warp_f0_by_durations(
+        warped_f0, _ = warp_f0_by_durations_batched(
             f0, orig_durations, durations, in_log_domain=False
-        ).reshape(1, 1, -1)
-
+        )
+        warped_f0 = warped_f0.to(self.device)
         spk_id = self.model.get_spk_id(
             wav, target_speaker if target_speaker else self.target_speaker
-        )
+        ).to(self.device)
         return self.model._forward(warped_f0, bn, spk_id).squeeze(0)
 
 

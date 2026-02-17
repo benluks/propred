@@ -267,7 +267,12 @@ def rle_encode_batch(idx_bt: torch.Tensor, pad_value: int = -1):
     return values, lengths, rmask
 
 
-def expand_batch(values: torch.Tensor, pred_lengths: torch.Tensor, rmask: torch.Tensor):
+def expand_batch(
+    values: torch.Tensor,
+    pred_lengths: torch.Tensor,
+    rmask: torch.Tensor,
+    pad_value: int = -1,
+):
     """
     values:       [B, Rmax]
     pred_lengths: [B, Rmax] (long)
@@ -277,11 +282,11 @@ def expand_batch(values: torch.Tensor, pred_lengths: torch.Tensor, rmask: torch.
       idx_list: list of length B, each is [T'_b] long (ragged)
     """
     B, Rmax = values.shape
-    out = []
+    out = (torch.ones((B, pred_lengths.sum(1).max().long().item())) * pad_value).long()
     for b in range(B):
         v = values[b][rmask[b]]
         l = pred_lengths[b][rmask[b]]
-        out.append(expand_by_duration(v, l))
+        out[b, : l.sum().long().item()] = expand_by_duration(v, l)
     return out
 
 

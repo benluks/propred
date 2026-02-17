@@ -46,7 +46,7 @@ class DurationPredictor(nn.Module):
             features = layer.filter_channels
 
         self.proj = self.proj = nn.Linear(features, output_dim)
-        self.do_log = self.do_log
+        self.do_log = do_log
 
     def forward(self, x, mask):
 
