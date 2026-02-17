@@ -17,7 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from model.predictor import DurationPredictor
 from data.ljspeech import DurationsDataset
-from utils.config import load_config
+from propred.utils.config import load_config
 
 
 @dataclass

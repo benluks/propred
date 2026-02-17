@@ -3,8 +3,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 from pathlib import Path
 
-from librosa import pyin
-from librosa.feature import rms
+# from librosa import pyin
+# from librosa.feature import rms
 
 import numpy as np
 import torch
@@ -202,6 +202,136 @@ def warp_f0_by_durations(
     return y
 
 
+import torch
+import torch.nn.functional as F
+
+
+@torch.no_grad()
+def warp_f0_by_durations_batched(
+    f0_old: torch.Tensor,  # [B, Tmax] (padded with 0)
+    d_old: torch.Tensor,  # [B, Rmax] (padded with 0)
+    d_new: torch.Tensor,  # [B, Rmax] (padded with 0)
+    *,
+    interp: str = "linear",
+    in_log_domain: bool = False,
+    eps: float = 1e-6,
+    pad_value: float = 0.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Piecewise warp f0 according to per-run duration changes (batched, padded inputs).
+
+    Returns:
+      f0_new:   [B, Tmax_new] padded with pad_value
+      new_lens: [B] long, true lengths (sum of kept d_new runs)
+    """
+    if f0_old.ndim != 2:
+        raise ValueError(f"Expected f0_old [B,T], got {tuple(f0_old.shape)}")
+    if d_old.ndim != 2 or d_new.ndim != 2:
+        raise ValueError(
+            f"Expected d_old/d_new [B,R], got {tuple(d_old.shape)} / {tuple(d_new.shape)}"
+        )
+    if d_old.shape != d_new.shape:
+        raise ValueError(
+            f"d_old and d_new must have same shape. Got {tuple(d_old.shape)} vs {tuple(d_new.shape)}"
+        )
+
+    f0_old = f0_old.float()
+    d_old = d_old.to(torch.long)
+    d_new = d_new.to(torch.long)
+
+    B, Tmax = f0_old.shape
+    _, Rmax = d_old.shape
+    device = f0_old.device
+    dtype = f0_old.dtype
+
+    # For linear 1D, align_corners=True is common, but it can be touchy for tiny lengths.
+    # We'll only use it when both lengths > 1 and mode supports it.
+    modes_with_align = {"linear", "bilinear", "bicubic", "trilinear"}
+
+    out_list = []
+    new_lens = torch.zeros(B, dtype=torch.long, device=device)
+
+    for b in range(B):
+        # real runs are where d_old > 0 (padding is 0)
+        run_mask = d_old[b] > 0
+        d0 = d_old[b][run_mask]  # [Rb]
+        d1 = d_new[b][run_mask]  # [Rb]
+
+        T_b = int(d0.sum().item())
+        if T_b > Tmax:
+            raise ValueError(
+                f"sum(d_old[b])={T_b} exceeds f0_old length Tmax={Tmax} for batch index {b}"
+            )
+
+        f0_b = f0_old[b, :T_b]  # [T_b]
+
+        # Optionally interpolate in log domain
+        if in_log_domain:
+            x = torch.log(f0_b.clamp_min(eps))
+        else:
+            x = f0_b
+
+        out_chunks = []
+        start = 0
+        new_T_b = 0
+
+        # iterate runs
+        for L0, L1 in zip(d0.tolist(), d1.tolist()):
+            seg = x[start : start + L0]
+            start += L0
+
+            if L1 <= 0:
+                continue  # drop run
+            if L0 <= 0:
+                # shouldn't happen (since we masked d_old>0), but guard anyway
+                out_chunks.append(
+                    torch.full((L1,), pad_value, dtype=x.dtype, device=device)
+                )
+                new_T_b += L1
+                continue
+
+            if L0 == L1:
+                out_chunks.append(seg)
+                new_T_b += L1
+                continue
+
+            # If L0==1, interpolate is ill-defined; just repeat the value.
+            if L0 == 1:
+                out_chunks.append(seg.repeat(L1))
+                new_T_b += L1
+                continue
+
+            # Resample seg from length L0 -> L1
+            seg3 = seg.view(1, 1, L0)
+            use_align = (interp in modes_with_align) and (L0 > 1) and (L1 > 1)
+            seg_rs = F.interpolate(
+                seg3, size=L1, mode=interp, align_corners=use_align
+            ).view(L1)
+            out_chunks.append(seg_rs)
+            new_T_b += L1
+
+        if out_chunks:
+            y = torch.cat(out_chunks, dim=0)
+        else:
+            y = torch.empty(0, dtype=x.dtype, device=device)
+
+        if in_log_domain:
+            y = torch.exp(y)
+
+        out_list.append(y.to(dtype))
+        new_lens[b] = y.numel()
+
+    Tmax_new = int(new_lens.max().item()) if B > 0 else 0
+    f0_new = torch.full((B, Tmax_new), pad_value, dtype=dtype, device=device)
+
+    for b in range(B):
+        L = int(new_lens[b].item())
+        if L > 0:
+            f0_new[b, :L] = out_list[b]
+
+    return f0_new, new_lens
+
+
 from collections import OrderedDict
 from pathlib import Path
 import torch
@@ -225,7 +355,6 @@ def rewrite_duration_ckpt_for_modular_model(in_path: str | Path, out_path: str |
 
     ckpt["state_dict"] = new_sd
     torch.save(ckpt, out_path)
-
 
 
 # model = DurationRegressor.load_from_checkpoint("rewritten.ckpt")  # now works

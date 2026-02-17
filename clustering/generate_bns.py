@@ -1,18 +1,18 @@
 from pathlib import Path
-from datasets import load_dataset
-import datasets
+# from datasets import load_dataset
+# import datasets
 import torch
 import torchaudio.transforms as T
 from tqdm import tqdm
-from torchcodec import AudioSamples
+# from torchcodec import AudioSamples
 
-from data.prosody_flow import HFStreamingWrapper
+# from data.prosody_flow import HFStreamingWrapper
 
 TARGET_SR = 16_000
 DEVICE = "mps"
 
 
-def load_audio(audio: AudioSamples, target_sr=TARGET_SR):
+def load_audio(audio, target_sr=TARGET_SR):
     samples = audio.get_all_samples()
     audio_data = samples.data
     sr = samples.sample_rate
@@ -31,7 +31,7 @@ def load_bn_extractor():
     for parameter in bn_extractor.parameters():
         parameter.requires_grad = False
 
-    return bn_extractor.to(DEVICE)
+    return bn_extractor
 
 
 def get_bn(bn_extractor, audio):

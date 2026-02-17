@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset
 
 from data.utils import load_audio
-from utils.run_lengths import rle_encode_1d, singleton_kill
+from propred.utils.run_lengths import rle_encode_1d, singleton_kill
 
 
 class DurationsDataset(Dataset):
