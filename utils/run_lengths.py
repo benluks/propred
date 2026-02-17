@@ -1,3 +1,4 @@
+from typing import Optional, Tuple
 import matplotlib.pyplot as plt
 import torch
 
@@ -131,18 +132,16 @@ def singleton_kill_batch(
       lengths2: [B, Rmax2]
       rmask2:   [B, Rmax2]
     """
-    
+
     if k < 1:
         return values, lengths, rmask
-    
+
     B, Rmax = values.shape
     device = values.device
 
     vals_list = []
     lens_list = []
     Rmax2 = 0
-
-    
 
     for b in range(B):
         v = values[b][rmask[b]]
@@ -286,6 +285,43 @@ def expand_batch(values: torch.Tensor, pred_lengths: torch.Tensor, rmask: torch.
     return out
 
 
+def perturb_durations_logjitter(
+    d: torch.Tensor,  # [B, R] long, padded with -1
+    strength: float = 0.35,  # 0..1
+    sigma0: float = 0.30,  # base log-noise
+    factor_clip: Optional[Tuple[float, float]] = (0.5, 2.0),
+    min_d: int = 1,
+    max_d: Optional[int] = None,
+    generator: Optional[torch.Generator] = None,
+) -> torch.Tensor:
+    assert d.dtype in (torch.int32, torch.int64)
+    device = d.device
+    mask = d.ge(0)  # valid entries
+    d_f = d.clamp(min=1).to(
+        torch.float32
+    )  # safe for multiply; padded -1 becomes 1 but masked out
+
+    sigma = float(strength) * float(sigma0)
+    if sigma == 0.0:
+        return d.clone()
+
+    eps = torch.randn(d_f.shape, device=device, generator=generator) * sigma
+    factor = torch.exp(eps)
+
+    if factor_clip is not None:
+        lo, hi = factor_clip
+        factor = factor.clamp(lo, hi)
+
+    return d_f * factor * mask
+    d_new = d_new.clamp(min=min_d)
+    if max_d is not None:
+        d_new = d_new.clamp(max=max_d)
+
+    # restore padding
+    d_new = torch.where(mask, d_new, torch.full_like(d_new, -1))
+    return d_new
+
+
 def plot_run_lengths(run_lengths):
     hist = torch.bincount(run_lengths)
 
@@ -306,6 +342,11 @@ def plot_run_lengths(run_lengths):
 
 
 if __name__ == "__main__":
-    labels = torch.load("/Users/ben/dev/propred/data/LJSpeech-1.1/labels.pt")
-    run_lengths = get_run_lengths(labels)
-    plot_run_lengths(run_lengths)
+    # labels = torch.load("/Users/ben/dev/propred/data/LJSpeech-1.1/labels.pt")
+    # run_lengths = get_run_lengths(labels)
+    # plot_run_lengths(run_lengths)
+    a = torch.load("/Users/ben/dev/propred/data/LibriTTS/emb_ids/test-clean/121_121726_000020_000001.pt")
+    rl = get_run_lengths(a)
+    rl_new = perturb_durations_logjitter(rl, 1, 0.5)
+    print(rl)
+    print(rl_new)

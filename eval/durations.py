@@ -1,4 +1,5 @@
 import argparse
+from functools import partial
 import os
 from pathlib import Path
 import sys
@@ -16,7 +17,11 @@ from clustering.generate_bns import load_bn_extractor
 from data.ljspeech import DurationsDataset
 from data.utils import warp_f0_by_durations
 from train import DurationRegressor
-from utils.run_lengths import expand_batch, expand_by_duration
+from utils.run_lengths import (
+    expand_batch,
+    expand_by_duration,
+    perturb_durations_logjitter,
+)
 
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
@@ -24,22 +29,35 @@ os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 @torch.inference_mode
 class Converter(nn.Module):
     def __init__(
-        self, dp_ckpt: str, target_speaker: str, device: str, embedding_path=None
+        self,
+        dp_ckpt: str,
+        target_speaker: str,
+        device: str,
+        embedding_path=None,
+        stochastic=True,
+        stoch_kwargs={},
     ):
         super().__init__()
 
         self.device = device
         self.model = load_bn_extractor().to(device)
         self.model.eval()
-        self.duration_predictor = DurationRegressor.load_from_checkpoint(
-            dp_ckpt
-        ).model.to(device)
-        if embedding_path:
-            embedding = torch.load(embedding_path)
-            self.duration_predictor.embedding = nn.Embedding.from_pretrained(
-                embedding
-            ).to(device)
-        self.duration_predictor.eval()
+        self.stochastic = stochastic
+
+        if self.stochastic:
+            self.duration_predictor = partial(
+                perturb_durations_logjitter, kwargs=stoch_kwargs
+            )
+        else:
+            self.duration_predictor = DurationRegressor.load_from_checkpoint(
+                dp_ckpt
+            ).model.to(device)
+            if embedding_path:
+                embedding = torch.load(embedding_path)
+                self.duration_predictor.embedding = nn.Embedding.from_pretrained(
+                    embedding
+                ).to(device)
+            self.duration_predictor.eval()
         self.target_speaker = target_speaker
 
     @torch.no_grad
@@ -52,6 +70,7 @@ class Converter(nn.Module):
         values_mask=None,
         target_speaker=None,
         f0=None,
+        dp_kwargs={},
     ):
         if wav.ndim == 1:
             wav = wav.unsqueeze(0)
@@ -68,7 +87,7 @@ class Converter(nn.Module):
         if values.ndim == 1:
             values = values.unsqueeze(0)
 
-        pred_durations = self.duration_predictor(values, values_mask)
+        pred_durations = self.duration_predictor(values, mask=values_mask, **dp_kwargs)
         if self.duration_predictor.do_log:
             pred_durations = torch.expm1(pred_durations).round().clamp_min(1).long()
         durations = torch.round(C * pred_durations + (1 - C) * orig_durations)

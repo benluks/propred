@@ -48,13 +48,13 @@ class DurationPredictor(nn.Module):
         self.proj = self.proj = nn.Linear(features, output_dim)
         self.do_log = self.do_log
 
-    def forward(self, x, x_mask):
+    def forward(self, x, mask):
 
         with torch.no_grad():
-            x = self.embedding(x * x_mask.detach().to(x.dtype))
+            x = self.embedding(x * mask.detach().to(x.dtype))
 
         x = x.transpose(1, 2)
-        x_mask = x_mask.unsqueeze(1)
+        x_mask = mask.unsqueeze(1)
 
         if not isinstance(self.conv, Iterable):
             x = self.conv(x, x_mask)
