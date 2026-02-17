@@ -318,13 +318,6 @@ def perturb_durations_logjitter(
         factor = factor.clamp(lo, hi)
 
     return d_f * factor * mask
-    d_new = d_new.clamp(min=min_d)
-    if max_d is not None:
-        d_new = d_new.clamp(max=max_d)
-
-    # restore padding
-    d_new = torch.where(mask, d_new, torch.full_like(d_new, -1))
-    return d_new
 
 
 def plot_run_lengths(run_lengths):

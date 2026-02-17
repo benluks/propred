@@ -41,16 +41,16 @@ def get_bn(bn_extractor, audio):
 
 
 if __name__ == "__main__":
+    pass
+    # ds = load_dataset("mythicinfinity/libritts", "clean", streaming=True)
+    # train_ds = HFStreamingWrapper(ds["train.clean.100"])
 
-    ds = load_dataset("mythicinfinity/libritts", "clean", streaming=True)
-    train_ds = HFStreamingWrapper(ds["train.clean.100"])
+    # ds_iter = iter(train_ds)
 
-    ds_iter = iter(train_ds)
+    # bn_extractor = load_bn_extractor()
 
-    bn_extractor = load_bn_extractor()
+    # for i in tqdm(range(16)):
+    #     sample = next(ds_iter)
+    #     bn = get_bn(bn_extractor, sample["audio"])
 
-    for i in tqdm(range(16)):
-        sample = next(ds_iter)
-        bn = get_bn(bn_extractor, sample["audio"])
-
-        torch.save(bn.squeeze(0), Path("clustering") / "bns" / sample["id"])
+    #     torch.save(bn.squeeze(0), Path("clustering") / "bns" / sample["id"])
