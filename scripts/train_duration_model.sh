@@ -1,1 +1,1 @@
-uv run train/durations.py --config configs/smooth_log_4layers.yaml
+uv run train/durations.py --config configs/log.yaml
