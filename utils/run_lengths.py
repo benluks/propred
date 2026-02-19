@@ -4,6 +4,7 @@ import torch
 
 
 import torch
+import torchaudio
 
 
 def rle_encode_1d(x: torch.Tensor):
@@ -298,6 +299,7 @@ def perturb_durations_logjitter(
     min_d: int = 1,
     max_d: Optional[int] = None,
     generator: Optional[torch.Generator] = None,
+    **kwargs,
 ) -> torch.Tensor:
     assert d.dtype in (torch.int32, torch.int64)
     device = d.device
@@ -343,8 +345,46 @@ if __name__ == "__main__":
     # labels = torch.load("/Users/ben/dev/propred/data/LJSpeech-1.1/labels.pt")
     # run_lengths = get_run_lengths(labels)
     # plot_run_lengths(run_lengths)
-    a = torch.load("/Users/ben/dev/propred/data/LibriTTS/emb_ids/test-clean/121_121726_000020_000001.pt")
-    rl = get_run_lengths(a)
-    rl_new = perturb_durations_logjitter(rl, 1, 0.5)
-    print(rl)
-    print(rl_new)
+    import torch.nn.functional as F
+
+    device = "cuda"
+    centers = torch.load(
+        "/cfs/home/u036742/Voice-Privacy-Challenge-2024/exp/dp/log_smooth1/embeddings.pt"
+    )
+    model = torch.hub.load(
+        "deep-privacy/SA-toolkit",
+        "anonymization",
+        tag_version="hifigan_bn_tdnnf_wav2vec2_vq_48_v1",
+        # exit_if_new_version=True,
+        # force_reload=False,
+        trust_repo=True,
+    ).to(device)
+    model.eval()
+    target = "6081"
+
+    def convert_index(index, t=1):
+
+        T = 50 * t
+        latent = centers[index].unsqueeze(1).expand(-1, T).unsqueeze(0).to(device)
+        spk_id = F.one_hot(
+            torch.tensor([model.spk.index(target)]),
+            num_classes=len(model.spk),
+        ).to(device)
+        conv = model._forward(torch.zeros(1, T).to(device), latent, spk_id).squeeze(0)
+
+        torchaudio.save(f"index_{index}.wav", conv.to("cpu"), 16000)
+
+    def wav_to_ids(wav, model, centers=centers):
+        bn = model.get_bn(wav.to(device))
+        ids = quantize_to_indices(bn, centers.to(device))
+        vals, rls, *_ = rle_encode_1d(ids.squeeze(0))
+        return vals, rls
+
+    # x = torch.randn(1, 500000)
+    # print(wav_to_ids(x, model))
+
+    # convert_index(1)
+
+    factor = 1e-1
+    y = model.convert(torch.randn((1, 16000)).to(device) * factor, target)
+    torchaudio.save(f"zeros_conv_{str(factor)}.wav", y.to("cpu"), 16000)

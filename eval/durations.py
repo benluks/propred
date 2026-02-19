@@ -43,20 +43,17 @@ class Converter(nn.Module):
         self.model = load_bn_extractor().to(device)
         self.model.eval()
         self.stochastic = stochastic
-
         if self.stochastic:
             self.duration_predictor = partial(
-                perturb_durations_logjitter, kwargs=stoch_kwargs
+                perturb_durations_logjitter, **stoch_kwargs
             )
         else:
-            self.duration_predictor = DurationRegressor.load_from_checkpoint(
-                dp_ckpt
-            ).model.to(device)
+            kwargs = {}
             if embedding_path:
-                embedding = torch.load(embedding_path)
-                self.duration_predictor.embedding = nn.Embedding.from_pretrained(
-                    embedding
-                ).to(device)
+                kwargs["embeddings_path"] = embedding_path
+            self.duration_predictor = DurationRegressor.load_from_checkpoint(
+                dp_ckpt, **kwargs
+            ).model.to(device)
             self.duration_predictor.eval()
         self.target_speaker = target_speaker
 
@@ -91,10 +88,10 @@ class Converter(nn.Module):
             values = values.unsqueeze(0)
 
         pred_durations = self.duration_predictor(values, mask=values_mask, **dp_kwargs)
-        if self.duration_predictor.do_log:
+        if getattr(self.duration_predictor, "do_log", False):
             pred_durations[values_mask] = torch.expm1(pred_durations[values_mask])
-        durations = torch.round(
-            C * pred_durations.round().long() + (1 - C) * orig_durations
+        durations = (
+            torch.round(C * pred_durations + (1 - C) * orig_durations).round().long()
         )
 
         bn_ids = expand_batch(values, durations, values_mask, pad_value=pad_value).to(
