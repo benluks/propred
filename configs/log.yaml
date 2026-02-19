@@ -1,0 +1,39 @@
+# -------------------------
+# Data
+# -------------------------
+data:
+  root: /Users/ben/dev/propred/data/LJSpeech-1.1/
+  pattern: "*.pt"
+  split: ""
+  return_wav: False
+  kill_singletons: 0
+
+dataloader:
+  batch_size: 32
+  num_workers: 0
+  pad_value: -1
+
+# -------------------------
+# Model
+# -------------------------
+model:
+  embeddings_path: /Users/ben/dev/propred/data/LJSpeech-1.1/embeddings.pt
+  filter_channels: 256
+  kernel_size: 3
+  p_dropout: 0.1
+  lr: 0.001
+  weight_decay: 0.0
+  loss_type: l1 # l1 | mse | huber
+  padding_idx: -1
+  do_log: true
+
+# -------------------------
+# Trainer
+# -------------------------
+trainer:
+  max_epochs: 50
+  accelerator: mps # cpu | gpu | auto
+  devices: auto
+  precision: 32 # or 16-mixed
+  log_every_n_steps: 50
+  version: log_50e
