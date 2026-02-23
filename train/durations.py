@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 import sys
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import torch
 from torch.utils.data import DataLoader
@@ -24,6 +24,7 @@ from propred.utils.config import load_config
 class Batch:
     values: torch.Tensor
     durations: torch.Tensor
+    spk_ids: Optional[torch.Tensor] = None
     lengths: torch.Tensor
     mask: torch.Tensor
 
@@ -33,10 +34,17 @@ def collate_values_durations(
     pad_value: int = 0,
 ) -> Batch:
 
-    values_list, durs_list = zip(*batch)
+    if len(batch[0]) == 2:
+        values_list, durs_list = zip(*batch)
+        spk_ids_list = None
+    else:
+        values_list, durs_list, spk_ids_list = zip(*batch)
 
     values = pad_sequence(values_list, batch_first=True, padding_value=pad_value)
     durations = pad_sequence(durs_list, batch_first=True, padding_value=pad_value)
+    spk_ids = (
+        torch.tensor(spk_ids_list).to(torch.long) if spk_ids_list is not None else None
+    )
 
     mask = (values != pad_value).float()
     lengths = mask.sum(-1).to(torch.long)
@@ -44,6 +52,7 @@ def collate_values_durations(
     return Batch(
         values=values.to(torch.long),
         durations=durations.to(torch.long),
+        spk_ids=spk_ids,
         lengths=lengths,
         mask=mask,
     )
@@ -64,13 +73,24 @@ class DurationRegressor(L.LightningModule):
         loss_type: str = "l1",  # "l1" or "mse" or "huber"
         do_log=False,
         padding_idx=0,
-        n_layers=1
+        n_layers=1,
+        use_spk_id=False,
+        spk_id_path: Optional[str | Path] = None,
+        spk_embedding_dim: Optional[int] = None,
     ):
         super().__init__()
         self.save_hyperparameters()
 
         self.do_log = do_log
-        
+        self.use_spk_id = use_spk_id
+        if self.use_spk_id:
+            if spk_embedding_dim is None:
+                raise ValueError(
+                    "spk_embedding_dim must be provided if use_spk_id is True"
+                )
+            spk_id_map = torch.load(spk_id_path)
+            num_speakers = len(spk_id_map)
+
         self.model = DurationPredictor(
             embeddings_path=embeddings_path,
             output_dim=1,
@@ -79,7 +99,10 @@ class DurationRegressor(L.LightningModule):
             p_dropout=p_dropout,
             padding_idx=padding_idx,
             n_layers=n_layers,
-            do_log=self.do_log
+            do_log=self.do_log,
+            use_spk_id=use_spk_id,
+            num_speakers=num_speakers if self.use_spk_id else None,
+            spk_embedding_dim=spk_embedding_dim if self.use_spk_id else None,
         )
         self.lr = lr
         self.weight_decay = weight_decay

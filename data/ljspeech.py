@@ -1,5 +1,7 @@
 from pathlib import Path
+from typing import Union
 import torch
+from torch.types import FileLike
 from torch.utils.data import Dataset
 
 from data.utils import load_audio
@@ -18,6 +20,8 @@ class DurationsDataset(Dataset):
         wavs_pattern="*.wav",
         target_sr=16000,
         kill_singletons: int = 0,
+        spk_id=False,
+        spk_id_path: Union[FileLike, dict, None] = None,
     ):
 
         self.root = Path(root)
@@ -37,8 +41,34 @@ class DurationsDataset(Dataset):
 
         self.kill_singletons = kill_singletons
 
+        self.spk_id = spk_id
+        if self.spk_id:
+            if spk_id_path is None:
+                raise ValueError("spk_id_path must be provided if spk_id is True")
+            self.spk_id_path = Path(spk_id_path)
+            if not self.spk_id_path.exists():
+                raise FileNotFoundError(f"spk_id_path not found: {self.spk_id_path}")
+            # dict of speaker ids, keys are ids, values are contiguous integers where max is num speakers - 1
+            self.spk_id_map = self._load_spk_id_map(self.spk_id_path)
+
     def __len__(self):
         return len(self.files)
+
+    def _parse_spk_id(self, utt_id: str) -> int:
+        return utt_id.split("-")[0]
+
+    def _load_spk_id_map(self, input) -> dict:
+        if isinstance(input, dict):
+            return input
+        elif isinstance(input, (str, Path)):
+            path = Path(input)
+            if not path.exists():
+                raise FileNotFoundError(f"spk_id_path not found: {path}")
+            return torch.load(path)
+        else:
+            raise ValueError(
+                "spk_id_path must be a dict or a path to a file containing a dict"
+            )
 
     def __getitem__(self, i: int):
         path = self.files[i]
@@ -51,11 +81,15 @@ class DurationsDataset(Dataset):
                 values, durations, k=self.kill_singletons
             )
 
+        ret = (values, durations)
         if self.return_wav:
             wav = load_audio(self.wavs[i], self.target_sr)
-            return values, durations, wav, utt_id
+            ret += (wav, utt_id)
 
-        return values, durations
+        if self.spk_id:
+            ret += (self.spk_id_map[self._parse_spk_id(utt_id)],)
+
+        return ret
 
 
 class PitchDataset(Dataset):

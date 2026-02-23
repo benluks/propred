@@ -15,7 +15,15 @@ from model.conv_decoder import ConvDecoder
 class DurationPredictor(nn.Module):
 
     def __init__(
-        self, embeddings_path, output_dim=1, n_layers=1, do_log=False, **conv_kwargs
+        self,
+        embeddings_path,
+        output_dim=1,
+        n_layers=1,
+        do_log=False,
+        use_spk_id=False,
+        num_speakers=None,
+        spk_embedding_dim=None,
+        **conv_kwargs,
     ):
         super().__init__()
         embeddings_matrix = torch.load(embeddings_path)
@@ -28,13 +36,18 @@ class DurationPredictor(nn.Module):
         for p in self.embedding.parameters():
             p.requires_grad = False
 
+        input_dim = embedding_dim
+
+        self.use_spk_id = use_spk_id
+        if self.use_spk_id:
+            self.spk_embedding = nn.Embedding(num_speakers, spk_embedding_dim)
+            input_dim += spk_embedding_dim
+
         # for posterity
         if n_layers == 1:
-            self.conv = ConvDecoder(embedding_dim, **conv_kwargs)
+            self.conv = ConvDecoder(input_dim, **conv_kwargs)
             features = self.conv.filter_channels
-
         else:
-            input_dim = embedding_dim
             conv = []
 
             for _ in range(n_layers):
@@ -48,12 +61,22 @@ class DurationPredictor(nn.Module):
         self.proj = self.proj = nn.Linear(features, output_dim)
         self.do_log = do_log
 
-    def forward(self, x, mask):
+    def forward(self, x, mask, spk_ids=None):
 
         with torch.no_grad():
             x = self.embedding(x * mask.detach().to(x.dtype))
-
         x = x.transpose(1, 2)
+
+        if self.use_spk_id:
+            assert (
+                spk_ids is not None
+            ), "spk_ids must be provided if DurationPredictor is initialized with `use_spk_id=True`"
+            B, T = spk_ids.shape
+            # [B, D_spk]
+            spk_emb = self.spk_embedding(spk_ids)
+            spk_emb = spk_emb.unsqueeze(-1).expand(-1, -1, T)
+            x = torch.cat([x, spk_emb], dim=1)
+
         x_mask = mask.unsqueeze(1)
 
         if not isinstance(self.conv, Iterable):
