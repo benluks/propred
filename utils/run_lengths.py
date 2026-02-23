@@ -239,15 +239,17 @@ def rle_encode_batch(idx_bt: torch.Tensor, pad_value: int = -1):
       values:   [B, Rmax] long
       lengths:  [B, Rmax] long
       rmask:    [B, Rmax] bool  (True where real run exists)
+
+    Assumes padding is at the end
     """
     if idx_bt.ndim != 2:
         raise ValueError(f"Expected [B,T], got {tuple(idx_bt.shape)}")
-
+    true_lens = (idx_bt != pad_value).sum(dim=1)
     B, T = idx_bt.shape
     values_list, lengths_list = [], []
     Rmax = 0
     for b in range(B):
-        v, l, _, _ = rle_encode_1d(idx_bt[b])
+        v, l, _, _ = rle_encode_1d(idx_bt[b, : true_lens[b]])
         values_list.append(v)
         lengths_list.append(l)
         Rmax = max(Rmax, v.numel())

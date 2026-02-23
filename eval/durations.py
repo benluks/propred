@@ -90,9 +90,8 @@ class Converter(nn.Module):
         pred_durations = self.duration_predictor(values, mask=values_mask, **dp_kwargs)
         if getattr(self.duration_predictor, "do_log", False):
             pred_durations[values_mask] = torch.expm1(pred_durations[values_mask])
-        durations = (
-            torch.round(C * pred_durations + (1 - C) * orig_durations).round().long()
-        )
+        durations = (C * pred_durations + (1 - C) * orig_durations).round().long()
+        final_durations_frames = durations.sum(1)
 
         bn_ids = expand_batch(values, durations, values_mask, pad_value=pad_value).to(
             self.device
@@ -104,8 +103,8 @@ class Converter(nn.Module):
             f0 = self.model.get_f0(wav)
 
         # It's possible that the frame lengths are off by 1, so we interpolate to make sure f0 fits
-        if f0.shape[-1] != orig_durations.sum(1)[0]:
-            f0 = F.interpolate(f0.unsqueeze(0), orig_durations.sum(1)[0]).squeeze(0)
+        if f0.shape[-1] != orig_durations.sum(1).max():
+            f0 = F.interpolate(f0.unsqueeze(0), orig_durations.sum(1).max()).squeeze(0)
 
         warped_f0, _ = warp_f0_by_durations_batched(
             f0, orig_durations, durations, in_log_domain=False
@@ -114,7 +113,8 @@ class Converter(nn.Module):
         spk_id = self.model.get_spk_id(
             wav, target_speaker if target_speaker else self.target_speaker
         ).to(self.device)
-        return self.model._forward(warped_f0, bn, spk_id).squeeze(0)
+        conv = self.model._forward(warped_f0, bn, spk_id).squeeze(0)
+        return conv, final_durations_frames
 
 
 def build_argparser() -> argparse.ArgumentParser:
