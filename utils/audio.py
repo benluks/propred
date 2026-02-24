@@ -3,8 +3,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 from pathlib import Path
 
-# from librosa import pyin
-# from librosa.feature import rms
+from librosa import pyin
+from librosa.feature import rms
 
 import numpy as np
 import torch

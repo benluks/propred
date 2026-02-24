@@ -195,7 +195,7 @@ if __name__ == "__main__":
         embedding_path.parent.mkdir(parents=True, exist_ok=True)
 
         x = torch.cat(chunks)
-        logging.info(f"Computing kmeans from bns...")
+        logging.info("Computing kmeans from bns...")
         labels, centroids, kmeans = cluster(x)
 
         logging.info(f"Saving kmeans model to {str(kmeans_path)}...")

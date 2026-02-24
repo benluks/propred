@@ -14,8 +14,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from clustering.generate_bns import load_bn_extractor
-from data.ljspeech import DurationsDataset
-from data.utils import warp_f0_by_durations, warp_f0_by_durations_batched
+from datasets.ljspeech import DurationsDataset
+from utils.utils import warp_f0_by_durations, warp_f0_by_durations_batched
 from train import DurationRegressor
 from propred.utils.run_lengths import (
     expand_batch,

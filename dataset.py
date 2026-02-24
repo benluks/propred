@@ -4,7 +4,7 @@ import torch
 from torch.types import FileLike
 from torch.utils.data import Dataset
 
-from data.utils import load_audio
+from utils.utils import load_audio
 from propred.utils.run_lengths import rle_encode_1d, singleton_kill
 
 
@@ -20,8 +20,7 @@ class DurationsDataset(Dataset):
         wavs_pattern="*.wav",
         target_sr=16000,
         kill_singletons: int = 0,
-        spk_id=False,
-        spk_id_path: Union[FileLike, dict, None] = None,
+        spk_id_map: Union[FileLike, dict, None] = None,
     ):
 
         self.root = Path(root)
@@ -41,15 +40,9 @@ class DurationsDataset(Dataset):
 
         self.kill_singletons = kill_singletons
 
-        self.spk_id = spk_id
-        if self.spk_id:
-            if spk_id_path is None:
-                raise ValueError("spk_id_path must be provided if spk_id is True")
-            self.spk_id_path = Path(spk_id_path)
-            if not self.spk_id_path.exists():
-                raise FileNotFoundError(f"spk_id_path not found: {self.spk_id_path}")
-            # dict of speaker ids, keys are ids, values are contiguous integers where max is num speakers - 1
-            self.spk_id_map = self._load_spk_id_map(self.spk_id_path)
+        self.use_spk_id = spk_id_map is not None
+        if self.use_spk_id:
+            self.spk_id_map = self._load_spk_id_map(spk_id_map)
 
     def __len__(self):
         return len(self.files)
@@ -86,7 +79,7 @@ class DurationsDataset(Dataset):
             wav = load_audio(self.wavs[i], self.target_sr)
             ret += (wav, utt_id)
 
-        if self.spk_id:
+        if self.use_spk_id:
             ret += (self.spk_id_map[self._parse_spk_id(utt_id)],)
 
         return ret

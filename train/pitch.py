@@ -13,7 +13,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from data.ljspeech import PitchDataset
+from datasets.ljspeech import PitchDataset
 from model.predictor import ProsodyPredictor
 
 
