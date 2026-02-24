@@ -7,3 +7,4 @@ data/latents
 data/LJSpeech-1.1
 data/LibriTTS
 lightning_logs
+data/*
