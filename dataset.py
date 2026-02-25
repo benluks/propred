@@ -1,11 +1,11 @@
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 import torch
 from torch.types import FileLike
 from torch.utils.data import Dataset
 
-from utils.utils import load_audio
-from propred.utils.run_lengths import rle_encode_1d, singleton_kill
+from utils.audio import load_audio
+from utils.run_lengths import rle_encode_1d, singleton_kill
 
 
 class DurationsDataset(Dataset):
@@ -15,6 +15,8 @@ class DurationsDataset(Dataset):
         pattern: str = "*.pt",
         embs_folder="emb_ids",
         split=None,
+        # index_path relative to root/emb_ids, e.g. "_splits/train"
+        index_path: Optional[str | Path] = None,
         return_wav=True,
         wavs_folder="wavs",
         wavs_pattern="*.wav",
@@ -25,10 +27,30 @@ class DurationsDataset(Dataset):
 
         self.root = Path(root)
         self.split = split
+        self.index_path = Path(index_path) if index_path is not None else None
+
         self.embs_path = self.root / embs_folder
         if self.split:
             self.embs_path = self.embs_path / split
-        self.files = sorted(self.embs_path.glob(pattern))
+        if self.index_path:
+            index_full_path = self.embs_path / self.index_path
+            # self.embs_path = self.embs_path / self.index_path
+            if index_full_path.is_dir():
+                # filter files based on index
+                self.embs_path = self.embs_path / self.index_path
+                selector = self.embs_path.glob(pattern)
+            else:
+                # index_path is a file, read lines and construct paths
+                with open(index_full_path, "r") as f:
+                    selector = [
+                        index_full_path.parent / line.strip()
+                        for line in f
+                        if line.strip()
+                    ]
+        else:
+            selector = self.embs_path.glob(pattern)
+
+        self.files = sorted(selector)
         if not self.files:
             raise FileNotFoundError(f"No files matched {pattern} in {self.embs_path}")
 

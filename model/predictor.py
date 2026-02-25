@@ -57,10 +57,10 @@ class DurationPredictor(nn.Module):
             self.conv = nn.Sequential(*conv)
             features = layer.filter_channels
 
-        self.proj = self.proj = nn.Linear(features, output_dim)
+        self.proj = nn.Linear(features, output_dim)
         self.do_log = do_log
 
-    def forward(self, x, mask, spk_ids=None):
+    def forward(self, x, mask, spk_ids=None, **kwargs):
 
         with torch.no_grad():
             x = self.embedding(x * mask.detach().to(x.dtype))
@@ -70,7 +70,7 @@ class DurationPredictor(nn.Module):
             assert (
                 spk_ids is not None
             ), "spk_ids must be provided if DurationPredictor is initialized with `use_spk_id=True`"
-            B, T = spk_ids.shape
+            *_, T = x.shape
             # [B, D_spk]
             spk_emb = self.spk_embedding(spk_ids)
             spk_emb = spk_emb.unsqueeze(-1).expand(-1, -1, T)

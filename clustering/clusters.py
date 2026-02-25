@@ -168,7 +168,7 @@ if __name__ == "__main__":
         bns_glob,
         desc=f"Fetching bns from {str(bns_path)}...",
     ):
-        bn = torch.load(f, map_location="mps")
+        bn = torch.load(f, map_location="cpu")
         if bn.ndim == 3:
             bn = bn.squeeze(0)
         bn = bn.transpose(0, 1)

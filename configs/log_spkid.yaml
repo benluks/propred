@@ -2,24 +2,26 @@
 # Data
 # -------------------------
 data:
-  root: data/LibriSpeech/
+  root: data/LibriSpeech
   pattern: "*.pt"
   split: "train-clean-100"
   return_wav: False
   kill_singletons: 0
-  spk_id_map: 
+  spk_id_map: !ref <data[root]>/spk_id_map/<data[split]>.pt
+  train_index: _splits/train
+  val_index:   _splits/val
 
 
 dataloader:
-  batch_size: 32
-  num_workers: 0
+  batch_size: 2048
+  num_workers: 12
   pad_value: -1
 
 # -------------------------
 # Model
 # -------------------------
 model:
-  embeddings_path: /data/LJSpeech-1.1/embeddings.pt
+  embeddings_path: !ref <data[root]>/embeddings/<data[split]>.pt
   filter_channels: 256
   kernel_size: 3
   p_dropout: 0.1
@@ -29,16 +31,17 @@ model:
   padding_idx: -1
   do_log: true
   use_spk_id: true
-  spk_id_path: 
+  spk_id_path: !ref <data[spk_id_map]>
   spk_embedding_dim: 128
 
 # -------------------------
 # Trainer
 # -------------------------
 trainer:
-  max_epochs: 50
-  accelerator: mps # cpu | gpu | auto
+  max_epochs: 1000
+  check_val_every_n_epoch: 8
+  accelerator: gpu # cpu | gpu | auto
   devices: auto
   precision: 32 # or 16-mixed
   log_every_n_steps: 50
-  version: log_50e
+  version: !ref log_spk_id<trainer[max_epochs]>

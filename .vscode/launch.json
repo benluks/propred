@@ -10,9 +10,12 @@
             "request": "launch",
             "cwd": "${workspaceFolder}",
             "program": "train/durations.py",
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0,"
+            },
             "args": [
                 "--config",
-                "configs/example.yaml"
+                "configs/log_spkid.yaml"
             ],
             "justMyCode": false
         },

@@ -1,3 +1,5 @@
+from typing import List
+
 import torch
 import torch.nn as nn
 
@@ -61,5 +63,38 @@ class ConvDecoder(nn.Module):
         x = torch.relu(x)
         x = self.norm_2(x)
         x = self.drop(x)
+
+        return x
+
+
+class CNN(nn.Module):
+    def __init__(
+        self,
+        input_dim,
+        filter_channels: List = [256],
+        **kwargs,
+    ):
+        super().__init__()
+        conv = []
+        # for posterity
+
+        conv = []
+
+        if isinstance(filter_channels, int):
+            filter_channels = [filter_channels]
+
+        for filter_channels in filter_channels:
+            layer = ConvDecoder(input_dim, filter_channels=filter_channels, **kwargs)
+            conv.append(layer)
+            input_dim = layer.filter_channels
+
+        self.conv = nn.Sequential(*conv)
+
+    def forward(self, x, x_mask):
+
+        for layer in self.conv:
+            res = x
+            x = layer(x, x_mask)
+            x = (x + res) * x_mask
 
         return x

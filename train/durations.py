@@ -3,6 +3,7 @@ from functools import partial
 from pathlib import Path
 import sys
 from typing import List, Optional, Tuple
+from hyperpyyaml import load_hyperpyyaml
 
 import torch
 from torch.utils.data import DataLoader
@@ -16,17 +17,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from model.predictor import DurationPredictor
-from datasets import DurationsDataset
-from propred.utils.config import load_config
+from dataset import DurationsDataset
 
 
 @dataclass
 class Batch:
     values: torch.Tensor
     durations: torch.Tensor
-    spk_ids: Optional[torch.Tensor] = None
     lengths: torch.Tensor
     mask: torch.Tensor
+    spk_ids: Optional[torch.Tensor] = None
 
 
 def collate_values_durations(
@@ -111,40 +111,46 @@ class DurationRegressor(L.LightningModule):
     def forward(self, values, mask):
         return self.model(values, mask)
 
-    def training_step(self, batch: Batch, batch_idx: int):
-        values = batch.values.to(self.device)  # (B, R)
-        durations = batch.durations.to(self.device)  # (B, R)
-        mask = batch.mask.to(self.device)  # (B, R)
-
-        pred = self.model(values, mask)  # (B, R) float
-        target = durations.float()
+    def _compute_loss_and_mae(self, batch: Batch):
+        pred = self.model(batch.values, batch.mask, batch.spk_ids)  # (B, R)
+        target = batch.durations.float()
 
         if self.do_log:
-            target[mask.bool()] = torch.log1p(target[mask.bool()])
+            target = target.clone()
+            target[batch.mask.bool()] = torch.log1p(target[batch.mask.bool()])
 
         if self.loss_type == "mse":
             loss_per = (pred - target) ** 2
         elif self.loss_type == "huber":
             loss_per = F.smooth_l1_loss(pred, target, reduction="none")
-        else:  # l1
+        else:
             loss_per = (pred - target).abs()
 
-        loss = (loss_per * mask).sum() / (mask.sum().clamp_min(1.0))
+        denom = batch.mask.sum().clamp_min(1.0)
+        loss = (loss_per * batch.mask).sum() / denom
+        mae = ((pred - target).abs() * batch.mask).sum() / denom
 
-        # some useful logging
-        with torch.no_grad():
-            mae = ((pred - target).abs() * mask).sum() / mask.sum().clamp_min(1.0)
-            self.log("train/loss", loss, prog_bar=True)
-            self.log("train/mae", mae, prog_bar=True)
+        mae_lin = None
+        if self.do_log:
+            pred_lin = torch.expm1(pred).clamp_min(0.0)
+            mae_lin = (
+                (pred_lin - batch.durations.float()).abs() * batch.mask
+            ).sum() / denom
 
-            if self.do_log:
-                pred_lin = torch.expm1(pred).clamp_min(0.0)
-                mae_lin = (
-                    (pred_lin - durations.float()).abs() * mask
-                ).sum() / mask.sum().clamp_min(1.0)
-                self.log("train/mae_linear", mae_lin, prog_bar=False)
+        return loss, mae, mae_lin
 
+    def training_step(self, batch: Batch, batch_idx: int):
+        loss, mae, mae_lin = self._compute_loss_and_mae(batch)
+        self.log_dict({"train/loss": loss, "train/mae": mae}, prog_bar=True)
+        if mae_lin is not None:
+            self.log("train/mae_linear", mae_lin, prog_bar=False)
         return loss
+
+    def validation_step(self, batch: Batch, batch_idx: int):
+        loss, mae, mae_lin = self._compute_loss_and_mae(batch)
+        self.log_dict({"val/loss": loss, "val/mae": mae}, prog_bar=True)
+        if mae_lin is not None:
+            self.log("val/mae_linear", mae_lin, prog_bar=False)
 
     def configure_optimizers(self):
         opt = torch.optim.AdamW(
@@ -165,26 +171,46 @@ def main():
     p.add_argument("--config", type=str, required=True)
     args = p.parse_args()
 
-    cfg = load_config(args.config)
-    ds = DurationsDataset(**cfg.data.__dict__)
+    with open(args.config, "r") as f:
+        cfg = load_hyperpyyaml(f)
+
+    train_ds_index_path = cfg["data"].pop("train_index", None)
+    val_ds_index_path = cfg["data"].pop("val_index", None)
+
+    train_ds = DurationsDataset(**cfg["data"], index_path=train_ds_index_path)
 
     # dl_kwargs = cfg.dataloader.__dict__
     # pad_value = dl_kwargs.pop("pad_value")
     dl = DataLoader(
-        ds,
+        train_ds,
         shuffle=True,
         pin_memory=True,
-        batch_size=cfg.dataloader.batch_size,
-        num_workers=cfg.dataloader.num_workers,
-        persistent_workers=(cfg.dataloader.num_workers > 0),
+        batch_size=cfg["dataloader"]["batch_size"],
+        num_workers=cfg["dataloader"]["num_workers"],
+        persistent_workers=(cfg["dataloader"]["num_workers"] > 0),
         collate_fn=partial(
-            collate_values_durations, pad_value=cfg.dataloader.pad_value
+            collate_values_durations, pad_value=cfg["dataloader"]["pad_value"]
         ),
     )
 
-    lit = DurationRegressor(**cfg.model.__dict__)
+    val_dl = None
+    if val_ds_index_path is not None:
+        val_ds = DurationsDataset(**cfg["data"], index_path=val_ds_index_path)
+        val_dl = DataLoader(
+            val_ds,
+            shuffle=False,
+            pin_memory=True,
+            batch_size=cfg["dataloader"]["batch_size"],
+            num_workers=cfg["dataloader"]["num_workers"],
+            persistent_workers=(cfg["dataloader"]["num_workers"] > 0),
+            collate_fn=partial(
+                collate_values_durations, pad_value=cfg["dataloader"]["pad_value"]
+            ),
+        )
 
-    trainer_kwargs = cfg.trainer.__dict__
+    lit = DurationRegressor(**cfg["model"])
+
+    trainer_kwargs = cfg["trainer"]
     version = trainer_kwargs.pop("version")
 
     trainer = L.Trainer(
@@ -202,7 +228,11 @@ def main():
         **trainer_kwargs,
     )
 
-    trainer.fit(lit, train_dataloaders=dl)
+    trainer.fit(
+        lit,
+        train_dataloaders=dl,
+        val_dataloaders=val_dl,
+    )
 
 
 if __name__ == "__main__":
