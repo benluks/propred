@@ -5,6 +5,7 @@ from torch.types import FileLike
 from torch.utils.data import Dataset
 
 from utils.audio import load_audio
+from utils.config import load_spk_id_map
 from utils.run_lengths import rle_encode_1d, singleton_kill
 
 
@@ -64,26 +65,13 @@ class DurationsDataset(Dataset):
 
         self.use_spk_id = spk_id_map is not None
         if self.use_spk_id:
-            self.spk_id_map = self._load_spk_id_map(spk_id_map)
+            self.spk_id_map = load_spk_id_map(spk_id_map)
 
     def __len__(self):
         return len(self.files)
 
     def _parse_spk_id(self, utt_id: str) -> int:
         return utt_id.split("-")[0]
-
-    def _load_spk_id_map(self, input) -> dict:
-        if isinstance(input, dict):
-            return input
-        elif isinstance(input, (str, Path)):
-            path = Path(input)
-            if not path.exists():
-                raise FileNotFoundError(f"spk_id_path not found: {path}")
-            return torch.load(path)
-        else:
-            raise ValueError(
-                "spk_id_path must be a dict or a path to a file containing a dict"
-            )
 
     def __getitem__(self, i: int):
         path = self.files[i]

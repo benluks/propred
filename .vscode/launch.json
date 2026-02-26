@@ -38,6 +38,15 @@
                 "/Users/ben/dev/propred/lightning_logs/duration/smooth_log_50e/checkpoints/epoch=33-step=13940.ckpt",
             ],
             "justMyCode": false
+        },
+        {
+            "name": "duration predictor",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "program": "model/duration_predictor.py",
+            "args": [],
+            "justMyCode": false
         }
     ]
 }

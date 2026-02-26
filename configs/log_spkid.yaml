@@ -1,6 +1,3 @@
-# -------------------------
-# Data
-# -------------------------
 data:
   root: data/LibriSpeech
   pattern: "*.pt"
@@ -8,37 +5,72 @@ data:
   return_wav: False
   kill_singletons: 0
   spk_id_map: !ref <data[root]>/spk_id_map/<data[split]>.pt
-  train_index: _splits/train
-  val_index:   _splits/val
 
+in_log_space: true
+collate_fn: !new:utils.collate.CollateValuesDurations
+  pad_value: -1
 
 dataloader:
   batch_size: 2048
   num_workers: 12
   pad_value: -1
 
-# -------------------------
-# Model
-# -------------------------
 model:
-  embeddings_path: !ref <data[root]>/embeddings/<data[split]>.pt
-  filter_channels: 256
-  kernel_size: 3
-  p_dropout: 0.1
   lr: 0.001
   weight_decay: 0.0
   loss_type: l1 # l1 | mse | huber
-  padding_idx: -1
   do_log: true
-  use_spk_id: true
-  spk_id_path: !ref <data[spk_id_map]>
-  spk_embedding_dim: 128
+  duration_predictor: !new:model.duration_predictor.DurationPredictor
+    padding_idx: -1
+    do_log: !ref <in_log_space>
+    embeddings_path: !ref <data[root]>/embeddings/<data[split]>.pt
+    spk_id_map: !ref <data[spk_id_map]>
+    spk_embedding_dim: 128
+    encoder: !new:model.conv.CNN
+      spk_id_map: !ref <data[spk_id_map]>
+      filter_channels: 256
+      kernel_size: 3
+      p_dropout: 0.1
+
+train_ds: !new:dataset.DurationsDataset
+  root: !ref <data[root]>
+  split: !ref <data[split]>
+  pattern: !ref <data[pattern]>
+  kill_singletons: !ref <data[kill_singletons]>
+  spk_id_map: !ref <data[spk_id_map]>
+  return_wav: !ref <data[return_wav]>
+  index_path: _splits/train
+
+val_ds: !new:dataset.DurationsDataset
+  root: !ref <data[root]>
+  split: !ref <data[split]>
+  pattern: !ref <data[pattern]>
+  kill_singletons: !ref <data[kill_singletons]>
+  spk_id_map: !ref <data[spk_id_map]>
+  return_wav: !ref <data[return_wav]>
+  index_path: _splits/val
+
+train_dataloader: !new:torch.utils.data.DataLoader
+  dataset: !ref <train_ds>
+  batch_size: !ref <dataloader[batch_size]>
+  num_workers: !ref <dataloader[num_workers]>
+  collate_fn: !ref <collate_fn>
+
+val_dataloader: !new:torch.utils.data.DataLoader
+  dataset: !ref <val_ds>
+  batch_size: !ref <dataloader[batch_size]>
+  num_workers: !ref <dataloader[num_workers]>
+  collate_fn: !ref <collate_fn>
+
+dataloaders:
+  train_dataloaders: !ref <train_dataloader>
+  val_dataloaders: !ref <val_dataloader>
 
 # -------------------------
 # Trainer
 # -------------------------
 trainer:
-  max_epochs: 1000
+  max_epochs: 50000
   check_val_every_n_epoch: 8
   accelerator: gpu # cpu | gpu | auto
   devices: auto

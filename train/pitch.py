@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from datasets.ljspeech import PitchDataset
-from model.predictor import ProsodyPredictor
+from model.duration_predictor import ProsodyPredictor
 
 
 @dataclass

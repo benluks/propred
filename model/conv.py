@@ -3,6 +3,8 @@ from typing import List
 import torch
 import torch.nn as nn
 
+from utils.config import load_spk_id_map
+
 """
 Taken from MatchaTTS: https://github.com/shivammehta25/Matcha-TTS/blob/main/matcha/models/components/text_encoder.py
 """
@@ -29,13 +31,9 @@ class LayerNorm(nn.Module):
         return x
 
 
-class ConvDecoder(nn.Module):
+class Conv(nn.Module):
     def __init__(
-        self,
-        input_dim,
-        filter_channels=256,
-        kernel_size=3,
-        p_dropout=0.1,
+        self, input_dim, filter_channels=256, kernel_size=3, p_dropout=0.1, **kwargs
     ):
         super().__init__()
         self.filter_channels = filter_channels
@@ -70,31 +68,44 @@ class ConvDecoder(nn.Module):
 class CNN(nn.Module):
     def __init__(
         self,
-        input_dim,
+        input_dim=256,
         filter_channels: List = [256],
         **kwargs,
     ):
         super().__init__()
-        conv = []
-        # for posterity
 
-        conv = []
+        layers = []
+        projections = []
 
         if isinstance(filter_channels, int):
             filter_channels = [filter_channels]
 
-        for filter_channels in filter_channels:
-            layer = ConvDecoder(input_dim, filter_channels=filter_channels, **kwargs)
-            conv.append(layer)
+        for i, filter_channels in enumerate(filter_channels):
+            layer = Conv(input_dim, filter_channels=filter_channels, **kwargs)
+            layers.append(layer)
+            if i == 0:
+                projections.append(None)
+            elif input_dim == filter_channels:
+                projections.append(nn.Identity())
+            else:
+                projections.append(
+                    torch.nn.Conv1d(input_dim, filter_channels, kernel_size=1)
+                )
+
             input_dim = layer.filter_channels
 
-        self.conv = nn.Sequential(*conv)
+        self.layers = nn.Sequential(*layers)
+        if len(layers) > 1:
+            self.projections = nn.ModuleList(projections)
+        self.output_dim = input_dim
 
     def forward(self, x, x_mask):
 
-        for layer in self.conv:
-            res = x
+        for i, (layer, proj) in enumerate(zip(self.layers, self.projections)):
+            if i > 0:
+                res = proj(x) * x_mask
             x = layer(x, x_mask)
-            x = (x + res) * x_mask
+            if i > 0:
+                x = (x + res) * x_mask
 
         return x
