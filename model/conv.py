@@ -101,9 +101,9 @@ class CNN(nn.Module):
 
     def forward(self, x, x_mask):
 
-        for i, (layer, proj) in enumerate(zip(self.layers, self.projections)):
+        for i, layer in enumerate(self.layers):
             if i > 0:
-                res = proj(x) * x_mask
+                res = self.projections[i](x) * x_mask
             x = layer(x, x_mask)
             if i > 0:
                 x = (x + res) * x_mask

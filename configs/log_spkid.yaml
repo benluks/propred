@@ -70,10 +70,10 @@ dataloaders:
 # Trainer
 # -------------------------
 trainer:
-  max_epochs: 50000
-  check_val_every_n_epoch: 8
+  max_steps: 120000
+  val_check_interval: 100
+  check_val_every_n_epoch: null
   accelerator: gpu # cpu | gpu | auto
   devices: auto
   precision: 32 # or 16-mixed
-  log_every_n_steps: 50
-  version: !ref log_spk_id<trainer[max_epochs]>
+  version: !ref log_spk_id<trainer[max_steps]>
