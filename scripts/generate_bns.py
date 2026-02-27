@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 import torch
 import torchaudio
-from torchaudio.datasets import LIBRITTS, LJSPEECH
+from torchaudio.datasets import LIBRITTS, LJSPEECH, LIBRISPEECH
 import torchaudio.transforms as T
 from tqdm import tqdm
 
@@ -15,7 +15,10 @@ from clustering.generate_bns import load_bn_extractor
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument(
-        "-d", "--dataset", choices=["libritts", "ljspeech"], default="libritts"
+        "-d",
+        "--dataset",
+        choices=["libritts", "ljspeech", "librispeech"],
+        default="libritts",
     )
     ap.add_argument(
         "--root",
@@ -27,7 +30,7 @@ def main():
         "--split",
         type=str,
         default="test-clean",
-        help="LibriTTS split. Only set if args.dataset == 'libritts'",
+        help="Dataset split: LibriTTS url or LibriSpeech url (e.g., train-clean-100)",
     )
     ap.add_argument(
         "--out_dir",
@@ -51,11 +54,12 @@ def main():
 
     datasets = {
         "libritts": {"class": LIBRITTS, "folder": "LibriTTS"},
+        "librispeech": {"class": LIBRISPEECH, "folder": "LibriSpeech"},
         "ljspeech": {"class": LJSPEECH, "folder": "LJSpeech-1.1"},
     }
 
     kwargs = {}
-    if args.dataset == "libritts":
+    if args.dataset in ("libritts", "librispeech"):
         kwargs["url"] = args.split
 
     ds = datasets[args.dataset]["class"](root=args.root, **kwargs)
@@ -87,6 +91,8 @@ def main():
 
         if args.dataset == "ljspeech":
             utt_id = ds._flist[i][0]
+        elif args.dataset == "librispeech":
+            utt_id = ds._walker[i]
 
         torch.save(reps, outdir / f"{utt_id}.pt")
 
